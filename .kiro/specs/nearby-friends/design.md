@@ -537,153 +537,141 @@ interface FriendUnsubscribeMessage {
 
 ### Property 1: Connection record storage
 
-*For any* valid connectionId and authenticated userId, after the websocket-connect handler processes the connection event, the Connections table shall contain a record mapping that connectionId to that userId.
+*For any* valid connectionId and authenticated userId, after the websocket-handler processes the connection event, the Connections_Table shall contain a record mapping that connectionId to that userId.
 
-**Validates: Requirements 1.4**
+**Validates: Requirement 1.4**
 
-### Property 2: Disconnect removes connection and unsubscribes
+### Property 2: Disconnect removes connection
 
-*For any* active WebSocket connection subscribed to N Redis pub/sub channels, after the websocket-disconnect handler processes the disconnect event, the Connections table shall no longer contain that connectionId, and the connection shall be subscribed to zero channels.
+*For any* active WebSocket connection, after the websocket-handler processes the disconnect event, the Connections_Table shall no longer contain that connectionId.
 
-**Validates: Requirements 2.1, 2.2**
+**Validates: Requirement 2.1**
 
 ### Property 3: Coordinate validation
 
 *For any* pair of numeric values (lat, lng) and an optional timestamp, the validation function shall accept the input if and only if lat is in the range [-90, 90], lng is in the range [-180, 180], and a valid timestamp is present. All other inputs (out of range, non-numeric, missing fields) shall be rejected.
 
-**Validates: Requirements 3.2, 3.6**
+**Validates: Requirements 3.2, 3.4**
 
-### Property 4: Location update dual-write
+### Property 4: Location update writes to Connections_Table with TTL
 
-*For any* valid location update with userId, latitude, longitude, and timestamp, after the websocket-location-update handler processes it, both the Location History table shall contain a record with those exact values and the Location Cache in Redis shall contain an entry with those exact values.
+*For any* valid location update with userId, latitude, longitude, and timestamp, after the websocket-handler processes it, the user's record in the Connections_Table shall contain those exact coordinate values and the TTL attribute shall be set to the current time plus the configured Inactivity_TTL.
 
-**Validates: Requirements 3.3, 3.4, 20.1**
+**Validates: Requirements 3.3, 6.2**
 
-### Property 5: Location cache TTL refresh
-
-*For any* valid location update, when the Backend writes or updates the Location Cache entry, the TTL shall be set to the configured Inactivity_TTL value. Successive updates shall each reset the TTL to the full Inactivity_TTL duration.
-
-**Validates: Requirements 3.4, 6.2**
-
-### Property 6: Haversine distance mathematical properties
+### Property 5: Haversine distance mathematical properties
 
 *For any* two valid geographic coordinate pairs (lat1, lng1) and (lat2, lng2) where lat ∈ [-90, 90] and lng ∈ [-180, 180], the Haversine function shall satisfy: (a) distance is always non-negative, (b) haversine(a, b) equals haversine(b, a) (symmetry), and (c) haversine(a, a) equals 0 (identity).
 
-**Validates: Requirements 5.1**
+**Validates: Requirement 5.1**
 
-### Property 7: Nearby classification matches distance comparison
+### Property 6: Nearby classification matches distance comparison
 
-*For any* two valid geographic coordinate pairs and any positive search radius, the system shall classify a user as "nearby" if and only if the Haversine distance between the two points is less than or equal to the radius. This applies uniformly to init.response filtering, pub/sub fan-out notifications, and nearby strangers queries.
+*For any* two valid geographic coordinate pairs and any positive search radius, the system shall classify a user as "nearby" if and only if the Haversine distance between the two points is less than or equal to the radius. This applies uniformly to init.response filtering, DynamoDB Streams fan-out notifications, and nearby strangers queries.
 
-**Validates: Requirements 1.7, 4.3, 4.4, 5.3, 5.4**
+**Validates: Requirements 1.7, 4.5, 4.6, 5.3, 5.4**
 
-### Property 8: Inactive user exclusion from nearby results
+### Property 7: Inactive user exclusion from nearby results
 
-*For any* user whose Location Cache entry has expired (no active Redis entry), that user shall not appear in any nearby friend results (init.response), location.push notifications, or nearby strangers results.
+*For any* user whose Connections_Table record has expired or is absent, that user shall not appear in any nearby friend results (init.response), location.push notifications, or nearby strangers results.
 
-**Validates: Requirements 1.6, 6.3**
+**Validates: Requirements 6.3**
 
-### Property 9: Fan-out processes all subscribers
+### Property 8: Fan-out notifies all nearby friends
 
-*For any* Redis pub/sub channel with N subscribers, when a location update is published to that channel, the pubsub-fanout handler shall evaluate the Haversine distance for all N subscribers — no subscriber shall be skipped and no non-subscriber shall be evaluated.
+*For any* DynamoDB Streams event triggered by a location update for user U with N friends, the fanout-handler shall evaluate the Haversine distance for all N friends with active connections — sending location.push to those within the Search_Radius and skipping those outside it.
 
-**Validates: Requirements 4.1**
+**Validates: Requirements 4.2, 4.3, 4.4, 4.5, 4.6**
 
-### Property 10: Init response contains exactly the nearby friends
+### Property 9: Init response contains exactly the nearby friends
 
-*For any* connecting user with a friend list and a set of friends with active Location Cache entries, the init.response message shall contain one entry for each friend within the configured Search_Radius, and each entry shall include friendId, latitude, longitude, lastUpdated, and distanceMiles. Friends outside the radius or without active cache entries shall not appear.
+*For any* connecting user with a friend list and a set of friends with active Connections_Table records, the init.response message shall contain one entry for each friend within the configured Search_Radius, and each entry shall include friendId, latitude, longitude, lastUpdated, and distanceMiles. Friends outside the radius or without active connection records shall not appear.
 
 **Validates: Requirements 1.7, 1.8**
 
-### Property 11: Connect subscribes to all friends' channels
+### Property 10: Friendship bidirectionality on accept
 
-*For any* user with N friends in the Friendships table, after the websocket-connect handler completes, the user's connection shall be subscribed to exactly N Redis pub/sub channels (one per friend), regardless of whether each friend has an active Location Cache entry.
+*For any* accepted friend request between userId A and userId B, after the accept operation completes, the Friendships_Table shall contain both the record (A, B) and the record (B, A).
 
-**Validates: Requirements 1.9**
+**Validates: Requirement 13.5**
 
-### Property 12: Friendship bidirectionality on add
+### Property 11: Friendship bidirectionality on remove
 
-*For any* valid add-friend operation between userId A and friendId B, after the operation completes, the Friendships table shall contain both the record (A, B) and the record (B, A).
+*For any* valid remove-friend operation between userId A and friendId B, after the operation completes, the Friendships_Table shall contain neither the record (A, B) nor the record (B, A).
 
-**Validates: Requirements 7.3, 16.3**
+**Validates: Requirement 7.1**
 
-### Property 13: Friendship bidirectionality on remove
+### Property 12: Friend count limit enforcement on accept
 
-*For any* valid remove-friend operation between userId A and friendId B, after the operation completes, the Friendships table shall contain neither the record (A, B) nor the record (B, A).
+*For any* friend request acceptance where either user's current friend count equals or exceeds the configured maximum (default 5,000), the accept operation shall be rejected with an error. For any acceptance where both users are below the maximum, the operation shall succeed.
 
-**Validates: Requirements 8.1**
+**Validates: Requirements 13.3, 13.4**
 
-### Property 14: Friend count limit enforcement
-
-*For any* user with a current friend count equal to or exceeding the configured maximum (default 5,000), an add-friend request shall be rejected with an error. For any user with a friend count below the maximum, the add-friend request shall succeed.
-
-**Validates: Requirements 7.1, 7.2**
-
-### Property 15: Subscribe/unsubscribe round-trip
-
-*For any* valid friendship and active WebSocket connection, subscribing to a friend's Redis pub/sub channel and then unsubscribing shall result in the connection no longer receiving messages from that channel. Subscribing shall only succeed if the friendship exists in the Friendships table.
-
-**Validates: Requirements 9.1, 9.2, 10.1**
-
-### Property 16: Profile update round-trip
+### Property 13: Profile update round-trip
 
 *For any* valid user profile with displayName, profilePictureKey, and discoverable flag, updating the profile via PUT and then retrieving it via GET shall return the same values that were written.
 
-**Validates: Requirements 11.1, 11.3**
+**Validates: Requirements 8.1, 8.3**
 
-### Property 17: Profile picture URL generation
+### Property 14: Profile picture URL generation
 
 *For any* user profile that includes a profilePictureKey, the GET profile response shall include a non-empty profilePictureUrl (pre-signed URL). For any profile without a profilePictureKey, the response shall not include a profilePictureUrl.
 
-**Validates: Requirements 11.2**
+**Validates: Requirement 8.2**
 
-### Property 18: Discoverable flag independence
+### Property 15: Discoverable flag independence
 
-*For any* user profile, toggling the discoverable flag via PUT /profile shall not affect the user's location sharing state (Redis pub/sub subscriptions), and changing location sharing state shall not affect the discoverable flag value in the Users table.
+*For any* user profile, toggling the discoverable flag via PUT /profile shall not affect the user's connection or location state in the Connections_Table, and updating location shall not affect the discoverable flag value in the Users_Table.
 
-**Validates: Requirements 11.4**
+**Validates: Requirement 8.4**
 
-### Property 19: Upload URL uniqueness
+### Property 16: Upload URL uniqueness
 
 *For any* two calls to generate a profile picture upload URL (even for the same userId), the returned S3 keys shall be distinct.
 
-**Validates: Requirements 12.1**
+**Validates: Requirement 9.1**
 
-### Property 20: Nearby strangers filtering
+### Property 17: Nearby strangers filtering
 
-*For any* set of active users in the Location Cache, the nearby-strangers endpoint shall return only users who satisfy all of: (a) within the configured Search_Radius of the requester, (b) not the requester themselves, (c) not an existing friend of the requester, and (d) have discoverable set to true. Each returned entry shall contain userId, displayName, profilePictureUrl, and distanceMiles.
+*For any* set of active users in the Connections_Table, the nearby-strangers endpoint shall return only users who satisfy all of: (a) within the configured Search_Radius of the requester, (b) not the requester themselves, (c) not an existing friend of the requester, and (d) have discoverable set to true in the Users_Table. Each returned entry shall contain userId, displayName, profilePictureUrl, and distanceMiles.
 
-**Validates: Requirements 13.1, 13.2, 13.3, 13.4**
+**Validates: Requirements 10.2, 10.3, 10.4, 10.5**
 
-### Property 21: Nearby strangers result cap
+### Property 18: Nearby strangers ordering by proximity
+
+*For any* nearby-strangers query result with multiple entries, the entries shall be ordered by distanceMiles ascending (closest first).
+
+**Validates: Requirement 10.5**
+
+### Property 19: Nearby strangers result cap
 
 *For any* nearby-strangers query result, the number of returned entries shall not exceed the configured limit (default 50) read from SSM Parameter Store, regardless of how many users satisfy the filtering criteria.
 
-**Validates: Requirements 13.5**
+**Validates: Requirement 10.6**
 
-### Property 22: Friend request creation and listing round-trip
+### Property 20: Friend request creation and listing round-trip
 
 *For any* valid friend request from user A to user B (where no pending request or existing friendship exists), after creation, querying pending incoming requests for user B shall include a record with the correct requestId, fromUserId equal to A, status "pending", and a createdAt timestamp.
 
-**Validates: Requirements 14.1, 15.1, 15.2**
+**Validates: Requirements 11.1, 12.1, 12.2**
 
-### Property 23: Friend request deletion on resolution
+### Property 21: Friend request deletion on resolution
 
-*For any* pending friend request, after either accepting or declining it, the FriendRequests table shall no longer contain that request record.
+*For any* pending friend request, after either accepting or declining it, the FriendRequests_Table shall no longer contain that request record.
 
-**Validates: Requirements 16.4, 17.3**
+**Validates: Requirements 13.6, 14.3**
 
-### Property 24: SSM parameters with defaults
+### Property 22: SSM parameters with defaults
 
 *For any* SSM parameter path in the set {search-radius-miles, inactivity-ttl-seconds, location-update-interval-seconds, max-friends, nearby-strangers-limit}, when the parameter exists in SSM Parameter Store, the system shall use its value; when the parameter does not exist, the system shall use the configured default (5, 600, 30, 5000, 50 respectively).
 
-**Validates: Requirements 18.1, 18.2, 18.3, 18.4, 18.5**
+**Validates: Requirements 15.1, 15.2, 15.3, 15.4, 15.5**
 
-### Property 25: Message serialization round-trip
+### Property 23: Message serialization round-trip
 
 *For any* valid LocationUpdateMessage, LocationPushMessage, or InitResponseMessage object, serializing to JSON and then parsing back shall produce an object equivalent to the original.
 
-**Validates: Requirements 19.4, 19.5, 19.6**
+**Validates: Requirements 16.4, 16.5, 16.6**
 
 ## Error Handling
 
