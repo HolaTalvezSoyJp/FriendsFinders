@@ -1,0 +1,133 @@
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+}
+
+data "aws_caller_identity" "current" {}
+
+# --- DynamoDB Tables ---
+
+module "dynamodb" {
+  source = "./modules/dynamodb"
+
+  project_name = var.project_name
+  tags         = var.tags
+}
+
+# --- S3 Bucket ---
+
+module "s3" {
+  source = "./modules/s3"
+
+  project_name   = var.project_name
+  aws_account_id = data.aws_caller_identity.current.account_id
+  tags           = var.tags
+}
+
+# --- SSM Parameters ---
+
+module "ssm" {
+  source = "./modules/ssm"
+
+  tags = var.tags
+}
+
+# --- WebSocket API (created early to break circular dependency) ---
+
+resource "aws_apigatewayv2_api" "websocket" {
+  name                       = "${var.project_name}-websocket"
+  protocol_type              = "WEBSOCKET"
+  route_selection_expression = "$request.body.action"
+
+  tags = var.tags
+}
+
+resource "aws_apigatewayv2_stage" "websocket" {
+  api_id      = aws_apigatewayv2_api.websocket.id
+  name        = "prod"
+  auto_deploy = true
+
+  default_route_settings {
+    throttling_burst_limit = 100
+    throttling_rate_limit  = 50
+  }
+
+  tags = var.tags
+}
+
+locals {
+  websocket_api_endpoint = "${aws_apigatewayv2_api.websocket.api_endpoint}/${aws_apigatewayv2_stage.websocket.name}"
+  websocket_api_arn      = aws_apigatewayv2_api.websocket.execution_arn
+}
+
+# --- IAM Roles ---
+
+module "iam" {
+  source = "./modules/iam"
+
+  project_name                = var.project_name
+  users_table_arn             = module.dynamodb.users_table_arn
+  friendships_table_arn       = module.dynamodb.friendships_table_arn
+  connections_table_arn       = module.dynamodb.connections_table_arn
+  connections_table_stream_arn = module.dynamodb.connections_table_stream_arn
+  friend_requests_table_arn   = module.dynamodb.friend_requests_table_arn
+  s3_bucket_arn               = module.s3.bucket_arn
+  ssm_parameter_arns          = module.ssm.parameter_arns
+  websocket_api_arn           = local.websocket_api_arn
+  tags                        = var.tags
+}
+
+# --- Lambda Functions ---
+
+module "lambda" {
+  source = "./modules/lambda"
+
+  project_name                = var.project_name
+  websocket_handler_role_arn  = module.iam.websocket_handler_role_arn
+  rest_handler_role_arn       = module.iam.rest_handler_role_arn
+  fanout_handler_role_arn     = module.iam.fanout_handler_role_arn
+  users_table_name            = module.dynamodb.users_table_name
+  friendships_table_name      = module.dynamodb.friendships_table_name
+  connections_table_name      = module.dynamodb.connections_table_name
+  friend_requests_table_name  = module.dynamodb.friend_requests_table_name
+  connections_table_stream_arn = module.dynamodb.connections_table_stream_arn
+  s3_bucket_name              = module.s3.bucket_name
+  websocket_api_endpoint      = local.websocket_api_endpoint
+  tags                        = var.tags
+}
+
+# --- API Gateway Routes & Integrations ---
+
+module "api_gateway" {
+  source = "./modules/api-gateway"
+
+  project_name                    = var.project_name
+  websocket_api_id                = aws_apigatewayv2_api.websocket.id
+  websocket_api_execution_arn     = aws_apigatewayv2_api.websocket.execution_arn
+  websocket_handler_invoke_arn    = module.lambda.websocket_handler_invoke_arn
+  websocket_handler_function_name = module.lambda.websocket_handler_function_name
+  rest_handler_invoke_arn         = module.lambda.rest_handler_invoke_arn
+  rest_handler_function_name      = module.lambda.rest_handler_function_name
+  tags                            = var.tags
+}
+
+# --- Monitoring ---
+
+module "monitoring" {
+  source = "./modules/monitoring"
+
+  websocket_handler_function_name = module.lambda.websocket_handler_function_name
+  rest_handler_function_name      = module.lambda.rest_handler_function_name
+  fanout_handler_function_name    = module.lambda.fanout_handler_function_name
+  tags                            = var.tags
+}
