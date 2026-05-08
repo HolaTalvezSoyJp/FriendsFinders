@@ -1,0 +1,349 @@
+import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import { v4 as uuidv4 } from 'uuid';
+import {
+  getFriends,
+  putFriendship,
+  deleteFriendship,
+  getFriendCount,
+  getUser,
+  putUser,
+  updateUser,
+  putFriendRequest,
+  getFriendRequest,
+  getFriendRequestsByToUser,
+  deleteFriendRequest,
+  getActiveConnections,
+  getConnectionsByUserId,
+} from '../utils/dynamo-client';
+import { getConfig } from '../utils/config';
+import { haversine } from '../utils/distance';
+import { generateUploadUrl, generateDownloadUrl } from '../utils/s3-client';
+import { UserProfile, FriendRequest, NearbyStrangerEntry } from '../types';
+
+export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const method = event.requestContext.http.method;
+  const path = event.rawPath;
+
+  try {
+    // Route matching
+    // DELETE /friends/{friendId}
+    if (method === 'DELETE' && path.match(/^\/friends\/[^/]+$/)) {
+      return handleRemoveFriend(event);
+    }
+
+    // POST /friend-requests/{toUserId}
+    if (method === 'POST' && path.match(/^\/friend-requests\/[^/]+$/)) {
+      return handleCreateFriendRequest(event);
+    }
+
+    // GET /friend-requests
+    if (method === 'GET' && path === '/friend-requests') {
+      return handleGetFriendRequests(event);
+    }
+
+    // PUT /friend-requests/{requestId}/accept
+    if (method === 'PUT' && path.match(/^\/friend-requests\/[^/]+\/accept$/)) {
+      return handleAcceptFriendRequest(event);
+    }
+
+    // PUT /friend-requests/{requestId}/decline
+    if (method === 'PUT' && path.match(/^\/friend-requests\/[^/]+\/decline$/)) {
+      return handleDeclineFriendRequest(event);
+    }
+
+    // GET /users/{userId}/profile-picture-upload-url
+    if (method === 'GET' && path.match(/^\/users\/[^/]+\/profile-picture-upload-url$/)) {
+      return handleGetUploadUrl(event);
+    }
+
+    // GET /users/{userId}/profile
+    if (method === 'GET' && path.match(/^\/users\/[^/]+\/profile$/)) {
+      return handleGetProfile(event);
+    }
+
+    // PUT /users/{userId}/profile
+    if (method === 'PUT' && path.match(/^\/users\/[^/]+\/profile$/)) {
+      return handleUpdateProfile(event);
+    }
+
+    // GET /nearby-strangers
+    if (method === 'GET' && path === '/nearby-strangers') {
+      return handleNearbyStrangers(event);
+    }
+
+    return response(404, { error: 'Not found' });
+  } catch (err) {
+    console.error('Unhandled error:', err);
+    return response(500, { error: 'Internal server error' });
+  }
+}
+
+function getAuthUserId(event: APIGatewayProxyEventV2): string | null {
+  return event.headers?.['x-user-id'] || null;
+}
+
+function extractPathParam(path: string, pattern: RegExp): string | null {
+  const match = path.match(pattern);
+  return match ? match[1] : null;
+}
+
+function response(statusCode: number, body: unknown): APIGatewayProxyResultV2 {
+  return {
+    statusCode,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}
+
+// --- DELETE /friends/{friendId} ---
+async function handleRemoveFriend(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const userId = getAuthUserId(event);
+  if (!userId) return response(401, { error: 'Unauthorized' });
+
+  const friendId = extractPathParam(event.rawPath, /^\/friends\/([^/]+)$/);
+  if (!friendId) return response(400, { error: 'Missing friendId' });
+
+  await deleteFriendship(userId, friendId);
+  await deleteFriendship(friendId, userId);
+
+  return response(200, { message: 'Friend removed' });
+}
+
+// --- POST /friend-requests/{toUserId} ---
+async function handleCreateFriendRequest(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const fromUserId = getAuthUserId(event);
+  if (!fromUserId) return response(401, { error: 'Unauthorized' });
+
+  const toUserId = extractPathParam(event.rawPath, /^\/friend-requests\/([^/]+)$/);
+  if (!toUserId) return response(400, { error: 'Missing toUserId' });
+
+  if (fromUserId === toUserId) {
+    return response(400, { error: 'Cannot send friend request to yourself' });
+  }
+
+  // Check if already friends
+  const friends = await getFriends(fromUserId);
+  const alreadyFriends = friends.some(f => f.friendId === toUserId);
+  if (alreadyFriends) {
+    return response(409, { error: 'Already friends' });
+  }
+
+  // Check for existing pending request
+  const existingRequests = await getFriendRequestsByToUser(toUserId);
+  const hasPending = existingRequests.some(
+    r => r.fromUserId === fromUserId && r.status === 'pending'
+  );
+  if (hasPending) {
+    return response(409, { error: 'Friend request already pending' });
+  }
+
+  const request: FriendRequest = {
+    requestId: uuidv4(),
+    fromUserId,
+    toUserId,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+
+  await putFriendRequest(request);
+  return response(201, request);
+}
+
+// --- GET /friend-requests ---
+async function handleGetFriendRequests(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const userId = getAuthUserId(event);
+  if (!userId) return response(401, { error: 'Unauthorized' });
+
+  const requests = await getFriendRequestsByToUser(userId);
+  const pending = requests.filter(r => r.status === 'pending');
+
+  return response(200, pending);
+}
+
+// --- PUT /friend-requests/{requestId}/accept ---
+async function handleAcceptFriendRequest(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const userId = getAuthUserId(event);
+  if (!userId) return response(401, { error: 'Unauthorized' });
+
+  const requestId = extractPathParam(event.rawPath, /^\/friend-requests\/([^/]+)\/accept$/);
+  if (!requestId) return response(400, { error: 'Missing requestId' });
+
+  const request = await getFriendRequest(requestId);
+  if (!request) return response(404, { error: 'Friend request not found' });
+  if (request.toUserId !== userId) return response(403, { error: 'Forbidden' });
+  if (request.status !== 'pending') return response(409, { error: 'Request is not pending' });
+
+  // Check friend count limits
+  const config = await getConfig();
+  const [userCount, fromUserCount] = await Promise.all([
+    getFriendCount(userId),
+    getFriendCount(request.fromUserId),
+  ]);
+
+  if (userCount >= config.maxFriends || fromUserCount >= config.maxFriends) {
+    return response(409, { error: 'Friend limit reached' });
+  }
+
+  // Create bidirectional friendship
+  await putFriendship(userId, request.fromUserId);
+  await putFriendship(request.fromUserId, userId);
+
+  // Delete the request
+  await deleteFriendRequest(requestId);
+
+  return response(200, { message: 'Friend request accepted' });
+}
+
+// --- PUT /friend-requests/{requestId}/decline ---
+async function handleDeclineFriendRequest(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const userId = getAuthUserId(event);
+  if (!userId) return response(401, { error: 'Unauthorized' });
+
+  const requestId = extractPathParam(event.rawPath, /^\/friend-requests\/([^/]+)\/decline$/);
+  if (!requestId) return response(400, { error: 'Missing requestId' });
+
+  const request = await getFriendRequest(requestId);
+  if (!request) return response(404, { error: 'Friend request not found' });
+  if (request.toUserId !== userId) return response(403, { error: 'Forbidden' });
+  if (request.status !== 'pending') return response(409, { error: 'Request is not pending' });
+
+  await deleteFriendRequest(requestId);
+
+  return response(200, { message: 'Friend request declined' });
+}
+
+// --- GET /users/{userId}/profile ---
+async function handleGetProfile(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const targetUserId = extractPathParam(event.rawPath, /^\/users\/([^/]+)\/profile$/);
+  if (!targetUserId) return response(400, { error: 'Missing userId' });
+
+  const user = await getUser(targetUserId);
+  if (!user) return response(404, { error: 'User not found' });
+
+  let profilePictureUrl: string | undefined;
+  if (user.profilePictureKey) {
+    profilePictureUrl = await generateDownloadUrl(user.profilePictureKey);
+  }
+
+  return response(200, {
+    userId: user.userId,
+    displayName: user.displayName,
+    profilePictureUrl,
+    discoverable: user.discoverable,
+    createdAt: user.createdAt,
+  });
+}
+
+// --- PUT /users/{userId}/profile ---
+async function handleUpdateProfile(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const userId = getAuthUserId(event);
+  if (!userId) return response(401, { error: 'Unauthorized' });
+
+  const targetUserId = extractPathParam(event.rawPath, /^\/users\/([^/]+)\/profile$/);
+  if (!targetUserId || targetUserId !== userId) {
+    return response(403, { error: 'Forbidden' });
+  }
+
+  const body = event.body ? JSON.parse(event.body) : {};
+
+  // Check if user exists; if not, create
+  const existingUser = await getUser(userId);
+  if (!existingUser) {
+    const newProfile: UserProfile = {
+      userId,
+      displayName: body.displayName || 'User',
+      profilePictureKey: body.profilePictureKey,
+      discoverable: body.discoverable ?? false,
+      createdAt: new Date().toISOString(),
+    };
+    await putUser(newProfile);
+    return response(200, { message: 'Profile created' });
+  }
+
+  const updates: Partial<Pick<UserProfile, 'displayName' | 'profilePictureKey' | 'discoverable'>> = {};
+  if (body.displayName !== undefined) updates.displayName = body.displayName;
+  if (body.profilePictureKey !== undefined) updates.profilePictureKey = body.profilePictureKey;
+  if (body.discoverable !== undefined) updates.discoverable = body.discoverable;
+
+  await updateUser(userId, updates);
+  return response(200, { message: 'Profile updated' });
+}
+
+// --- GET /users/{userId}/profile-picture-upload-url ---
+async function handleGetUploadUrl(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const userId = getAuthUserId(event);
+  if (!userId) return response(401, { error: 'Unauthorized' });
+
+  const targetUserId = extractPathParam(event.rawPath, /^\/users\/([^/]+)\/profile-picture-upload-url$/);
+  if (!targetUserId || targetUserId !== userId) {
+    return response(403, { error: 'Forbidden' });
+  }
+
+  const { uploadUrl, s3Key } = await generateUploadUrl(userId);
+  return response(200, { uploadUrl, s3Key });
+}
+
+// --- GET /nearby-strangers ---
+async function handleNearbyStrangers(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const userId = getAuthUserId(event);
+  if (!userId) return response(401, { error: 'Unauthorized' });
+
+  // Get user's own connection to find their location
+  const userConnections = await getConnectionsByUserId(userId);
+  const activeUserConn = userConnections.find(
+    c => c.latitude !== undefined && c.longitude !== undefined && c.expiresAt > Math.floor(Date.now() / 1000)
+  );
+
+  if (!activeUserConn || activeUserConn.latitude === undefined || activeUserConn.longitude === undefined) {
+    return response(400, { error: 'Your location is not available. Send a location update first.' });
+  }
+
+  const config = await getConfig();
+  const userLat = activeUserConn.latitude;
+  const userLng = activeUserConn.longitude;
+
+  // Get all active connections
+  const allConnections = await getActiveConnections();
+
+  // Get user's friends to exclude them
+  const friends = await getFriends(userId);
+  const friendIds = new Set(friends.map(f => f.friendId));
+
+  // Filter: exclude self, exclude friends, compute distance
+  const candidates: { userId: string; distanceMiles: number }[] = [];
+  for (const conn of allConnections) {
+    if (conn.userId === userId) continue;
+    if (friendIds.has(conn.userId)) continue;
+    if (conn.latitude === undefined || conn.longitude === undefined) continue;
+
+    const distance = haversine(userLat, userLng, conn.latitude, conn.longitude);
+    if (distance <= config.searchRadiusMiles) {
+      candidates.push({ userId: conn.userId, distanceMiles: distance });
+    }
+  }
+
+  // Filter discoverable users
+  const nearbyStrangers: NearbyStrangerEntry[] = [];
+  for (const candidate of candidates) {
+    const user = await getUser(candidate.userId);
+    if (!user || !user.discoverable) continue;
+
+    let profilePictureUrl = '';
+    if (user.profilePictureKey) {
+      profilePictureUrl = await generateDownloadUrl(user.profilePictureKey);
+    }
+
+    nearbyStrangers.push({
+      userId: user.userId,
+      displayName: user.displayName,
+      profilePictureUrl,
+      distanceMiles: Math.round(candidate.distanceMiles * 100) / 100,
+    });
+  }
+
+  // Sort by distance ascending and cap
+  nearbyStrangers.sort((a, b) => a.distanceMiles - b.distanceMiles);
+  const capped = nearbyStrangers.slice(0, config.nearbyStrangersLimit);
+
+  return response(200, capped);
+}

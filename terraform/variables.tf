@@ -17,5 +17,7 @@ variable "tags" {
     Project     = "nearby-friends"
     Environment = "dev"
     ManagedBy   = "terraform"
+    Team        = "team-3"
+    Name        = "juan.contreras@iteso.mx"
   }
 }
