@@ -1,3 +1,21 @@
+data "archive_file" "websocket_handler" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../../dist/websocket-handler"
+  output_path = "${path.module}/../../../dist/websocket-handler.zip"
+}
+
+data "archive_file" "rest_handler" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../../dist/rest-handler"
+  output_path = "${path.module}/../../../dist/rest-handler.zip"
+}
+
+data "archive_file" "fanout_handler" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../../dist/fanout-handler"
+  output_path = "${path.module}/../../../dist/fanout-handler.zip"
+}
+
 resource "aws_lambda_function" "websocket_handler" {
   function_name = "${var.project_name}-websocket-handler"
   role          = var.websocket_handler_role_arn
@@ -6,8 +24,8 @@ resource "aws_lambda_function" "websocket_handler" {
   timeout       = 30
   memory_size   = 256
 
-  filename         = "../dist/websocket-handler.zip"
-  source_code_hash = filebase64sha256("../dist/websocket-handler.zip")
+  filename         = data.archive_file.websocket_handler.output_path
+  source_code_hash = data.archive_file.websocket_handler.output_base64sha256
 
   environment {
     variables = {
@@ -34,8 +52,8 @@ resource "aws_lambda_function" "rest_handler" {
   timeout       = 30
   memory_size   = 256
 
-  filename         = "../dist/rest-handler.zip"
-  source_code_hash = filebase64sha256("../dist/rest-handler.zip")
+  filename         = data.archive_file.rest_handler.output_path
+  source_code_hash = data.archive_file.rest_handler.output_base64sha256
 
   environment {
     variables = {
@@ -63,8 +81,8 @@ resource "aws_lambda_function" "fanout_handler" {
   timeout       = 30
   memory_size   = 256
 
-  filename         = "../dist/fanout-handler.zip"
-  source_code_hash = filebase64sha256("../dist/fanout-handler.zip")
+  filename         = data.archive_file.fanout_handler.output_path
+  source_code_hash = data.archive_file.fanout_handler.output_base64sha256
 
   environment {
     variables = {
