@@ -9,7 +9,7 @@ const profiles: Record<string, UserProfile> = Object.fromEntries(
   Object.entries(SEED_PROFILES).map(([k, v]) => [k, { ...v }])
 );
 
-let friendRequests: FriendRequest[] = [
+const friendRequests: FriendRequest[] = [
   {
     requestId: "req-seed-1",
     fromUserId: "carol",

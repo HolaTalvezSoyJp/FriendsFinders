@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
+    "build:static": "bash scripts/build-static.sh",
+    "preview:static": "npx --yes serve out",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",

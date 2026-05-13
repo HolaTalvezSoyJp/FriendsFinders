@@ -40,6 +40,15 @@ resource "aws_apigatewayv2_api" "http" {
   name          = "${var.project_name}-http"
   protocol_type = "HTTP"
 
+  cors_configuration {
+    # Permissive for academic project; tighten to the CloudFront domain
+    # (e.g. https://d1xxx.cloudfront.net) once the distribution is known.
+    allow_origins = ["*"]
+    allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allow_headers = ["content-type", "x-user-id", "authorization"]
+    max_age       = 300
+  }
+
   tags = var.tags
 }
 

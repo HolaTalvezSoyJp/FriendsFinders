@@ -135,3 +135,13 @@ module "monitoring" {
   fanout_handler_function_name    = module.lambda.fanout_handler_function_name
   tags                            = var.tags
 }
+
+# --- Frontend hosting (S3 + CloudFront + deployer IAM user) ---
+
+module "frontend" {
+  source = "./modules/frontend"
+
+  project_name   = var.project_name
+  aws_account_id = data.aws_caller_identity.current.account_id
+  tags           = var.tags
+}
