@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  /* Color palette */
+  --color-background: #0B0B10;
+  --color-surface: #15151C;
+  --color-primary: #FF6B6B;
+  --color-primary-end: #FF8E53;
+  --color-success: #4ADE80;
+  --color-danger: #F87171;
+  --color-muted: #9CA3AF;
+
+  /* Typography */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-weight-display: 800;
+
+  /* Border radius */
+  --radius-card: 1.5rem;
+}
+
+/* MapLibre GL styles */
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+html,
+body {
+  background-color: #0B0B10;
+  color: #F5F5F7;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Safe area bottom padding utility */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
