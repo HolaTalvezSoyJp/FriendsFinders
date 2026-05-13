@@ -4,27 +4,30 @@
   "description": "Nearby Friends MVP backend",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "node scripts/build.js",
+    "type-check": "tsc --noEmit",
     "test": "jest",
     "test:unit": "jest tests/unit",
     "test:property": "jest tests/property"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.600.0",
-    "@aws-sdk/lib-dynamodb": "^3.600.0",
     "@aws-sdk/client-apigatewaymanagementapi": "^3.600.0",
+    "@aws-sdk/client-dynamodb": "^3.600.0",
     "@aws-sdk/client-s3": "^3.600.0",
-    "@aws-sdk/s3-request-presigner": "^3.600.0",
     "@aws-sdk/client-ssm": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
+    "@types/aws-lambda": "^8.10.0",
+    "@types/jest": "^29.5.0",
+    "@types/uuid": "^9.0.0",
+    "esbuild": "^0.28.0",
+    "fast-check": "^3.15.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.0",
-    "@types/jest": "^29.5.0",
-    "@types/aws-lambda": "^8.10.0",
-    "@types/uuid": "^9.0.0",
-    "fast-check": "^3.15.0"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
   }
 }
