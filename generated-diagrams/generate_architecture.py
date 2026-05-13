@@ -1,20 +1,23 @@
 from diagrams import Diagram, Cluster, Edge
 from diagrams.aws.compute import Lambda
-from diagrams.aws.database import Dynamodb, DynamodbTable
-from diagrams.aws.network import APIGateway
+from diagrams.aws.database import Dynamodb
+from diagrams.aws.network import APIGateway, CloudFront
 from diagrams.aws.storage import S3
 from diagrams.aws.management import SystemsManagerParameterStore, Cloudwatch
+from diagrams.aws.security import Cognito
 from diagrams.aws.general import Client
 
 # ── Cost Breakdown ──────────────────────────────────────────────────
 COST_LABEL = (
     "Nearby Friends MVP — AWS Architecture  |  Estimated Monthly Cost: ~$5–10\n"
     "─────────────────────────────────────────────────────────────────────\n"
-    "Lambda × 3 (128–256 MB, no VPC):  ~$1–3\n"
+    "Lambda × 3 (256 MB, no VPC):  ~$1–3\n"
     "DynamoDB × 4 (on-demand, pay-per-request):  ~$2–5\n"
     "API Gateway v2 (WebSocket + HTTP):  ~$1–3\n"
     "CloudWatch (logs + alarms):  ~$1–2\n"
-    "S3 (profile pictures, SSE-S3):  < $1\n"
+    "S3 × 2 (profile pictures + frontend):  < $1\n"
+    "Cognito (up to 50k MAUs):  free\n"
+    "CloudFront (free tier):  free\n"
     "SSM Parameter Store (standard):  free\n"
     "─────────────────────────────────────────────────────────────────────\n"
     "No VPC  |  No NAT Gateway  |  No ElastiCache Redis"
@@ -40,19 +43,36 @@ with Diagram(
     outformat="png",
 ):
 
-    # ── External Client ─────────────────────────────────────────────
-    mobile = Client("Mobile App")
+    # ── External Clients ────────────────────────────────────────────
+    browser = Client("Browser")
+    mobile  = Client("Mobile App")
+
+    # ── Auth ────────────────────────────────────────────────────────
+    cognito = Cognito(
+        "Cognito\n"
+        "User Pool\n"
+        "Hosted UI (web)\n"
+        "SDK (mobile)\n"
+        "JWT issuer"
+    )
+
+    # ── Frontend ────────────────────────────────────────────────────
+    with Cluster("Frontend"):
+        cf  = CloudFront("CloudFront\nHTTPS delivery")
+        s3f = S3("S3\nfrontend bucket\nindex.html")
+        cf >> s3f
 
     # ── API Gateway Layer ───────────────────────────────────────────
     with Cluster("API Gateway v2"):
         ws_api = APIGateway(
             "WebSocket API\n"
-            "$connect\n"
+            "$connect (JWKS verify)\n"
             "$disconnect\n"
             "location.update"
         )
         http_api = APIGateway(
-            "HTTP API (REST)\n"
+            "HTTP API\n"
+            "JWT Authorizer → Cognito\n"
             "DELETE /friends/{friendId}\n"
             "GET/PUT /users/profile\n"
             "GET /nearby-strangers\n"
@@ -60,7 +80,7 @@ with Diagram(
             "GET /profile-picture-upload-url"
         )
 
-    # ── Lambda Handlers (no VPC) ────────────────────────────────────
+    # ── Lambda Handlers ─────────────────────────────────────────────
     with Cluster("Lambda Handlers (3 functions, no VPC)"):
         lam_ws = Lambda(
             "websocket-handler\n"
@@ -128,12 +148,28 @@ with Diagram(
     # EDGES
     # ════════════════════════════════════════════════════════════════
 
+    # Browser → Cognito hosted UI → frontend
+    browser >> Edge(label="sign up/in", color="darkorange") >> cognito
+    browser >> Edge(label="https://", color="darkgreen") >> cf
+
+    # Mobile → Cognito SDK
+    mobile >> Edge(label="SRP/password auth", color="darkorange") >> cognito
+
+    # Cognito issues JWT → clients use it on API calls
+    cognito >> Edge(label="id_token (JWT)", style="dashed", color="darkorange") >> browser
+    cognito >> Edge(label="id_token (JWT)", style="dashed", color="darkorange") >> mobile
+
     # Client → API Gateway
-    mobile >> Edge(label="wss://", color="darkblue", style="bold") >> ws_api
-    mobile >> Edge(label="https://", color="darkgreen", style="bold") >> http_api
+    browser >> Edge(label="wss://?token=JWT", color="darkblue", style="bold") >> ws_api
+    browser >> Edge(label="Authorization: Bearer JWT", color="darkgreen", style="bold") >> http_api
+    mobile  >> Edge(label="wss://?token=JWT", color="darkblue", style="bold") >> ws_api
+    mobile  >> Edge(label="Authorization: Bearer JWT", color="darkgreen", style="bold") >> http_api
+
+    # HTTP API validates JWT against Cognito
+    http_api >> Edge(label="validate JWT", style="dashed", color="darkorange") >> cognito
 
     # API Gateway → Lambda handlers
-    ws_api >> Edge(color="darkblue") >> lam_ws
+    ws_api   >> Edge(color="darkblue")  >> lam_ws
     http_api >> Edge(color="darkgreen") >> lam_rest
 
     # DynamoDB Streams → fanout-handler
@@ -160,14 +196,15 @@ with Diagram(
     lam_fanout >> Edge(color="royalblue") >> ddb_friends
     lam_fanout >> Edge(color="royalblue") >> ddb_conn
 
-    # Lambda → S3 (pre-signed URLs)
+    # Lambda → S3 profile pictures (pre-signed URLs)
     lam_rest >> Edge(label="pre-signed\nGET/PUT", color="sienna") >> s3
 
     # Lambda → SSM (config reads)
-    lam_ws >> Edge(style="dotted", color="gray") >> ssm
-    lam_rest >> Edge(style="dotted", color="gray") >> ssm
+    lam_ws     >> Edge(style="dotted", color="gray") >> ssm
+    lam_rest   >> Edge(style="dotted", color="gray") >> ssm
     lam_fanout >> Edge(style="dotted", color="gray") >> ssm
 
     # Lambda → CloudWatch (logging)
-    lam_ws >> Edge(style="dotted", color="gray") >> cw
+    lam_ws     >> Edge(style="dotted", color="gray") >> cw
+    lam_rest   >> Edge(style="dotted", color="gray") >> cw
     lam_fanout >> Edge(style="dotted", color="gray") >> cw
