@@ -99,6 +99,7 @@ data "aws_iam_policy_document" "rest_handler" {
       "dynamodb:DeleteItem",
       "dynamodb:Query",
       "dynamodb:UpdateItem",
+      "dynamodb:Scan",
     ]
     resources = [
       var.users_table_arn,

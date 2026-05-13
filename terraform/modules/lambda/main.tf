@@ -38,6 +38,7 @@ resource "aws_lambda_function" "websocket_handler" {
       SSM_INACTIVITY_TTL         = "/nearby-friends/inactivity-ttl-seconds"
       SSM_LOCATION_UPDATE_INTERVAL = "/nearby-friends/location-update-interval-seconds"
       SSM_MAX_FRIENDS            = "/nearby-friends/max-friends"
+      COGNITO_USER_POOL_ID       = var.cognito_user_pool_id
     }
   }
 

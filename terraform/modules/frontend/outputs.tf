@@ -2,6 +2,10 @@ output "bucket_name" {
   value = aws_s3_bucket.frontend.id
 }
 
+output "bucket_arn" {
+  value = aws_s3_bucket.frontend.arn
+}
+
 output "cloudfront_url" {
   value = "https://${aws_cloudfront_distribution.frontend.domain_name}"
 }

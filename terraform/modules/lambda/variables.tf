@@ -58,3 +58,8 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "cognito_user_pool_id" {
+  description = "Cognito User Pool ID for WebSocket token verification"
+  type        = string
+}

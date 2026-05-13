@@ -33,6 +33,21 @@ variable "rest_handler_function_name" {
   type        = string
 }
 
+variable "cognito_issuer_url" {
+  description = "Cognito JWT issuer URL for the JWT authorizer"
+  type        = string
+}
+
+variable "web_client_id" {
+  description = "Cognito web app client ID"
+  type        = string
+}
+
+variable "mobile_client_id" {
+  description = "Cognito mobile client ID"
+  type        = string
+}
+
 variable "tags" {
   description = "Tags to apply to all resources"
   type        = map(string)

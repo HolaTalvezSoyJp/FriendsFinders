@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/archive"
       version = "~> 2.0"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -107,6 +111,7 @@ module "lambda" {
   connections_table_stream_arn = module.dynamodb.connections_table_stream_arn
   s3_bucket_name              = module.s3.bucket_name
   websocket_api_endpoint      = local.websocket_api_endpoint
+  cognito_user_pool_id        = module.cognito.user_pool_id
   tags                        = var.tags
 }
 
@@ -122,7 +127,48 @@ module "api_gateway" {
   websocket_handler_function_name = module.lambda.websocket_handler_function_name
   rest_handler_invoke_arn         = module.lambda.rest_handler_invoke_arn
   rest_handler_function_name      = module.lambda.rest_handler_function_name
+  cognito_issuer_url              = module.cognito.issuer_url
+  web_client_id                   = module.cognito.web_client_id
+  mobile_client_id                = module.cognito.mobile_client_id
   tags                            = var.tags
+}
+
+# --- Frontend infrastructure (S3 + CloudFront) ---
+# Created first so its CloudFront URL can be passed to Cognito as a callback URL.
+
+module "frontend" {
+  source = "./modules/frontend"
+
+  project_name   = var.project_name
+  aws_account_id = data.aws_caller_identity.current.account_id
+  tags           = var.tags
+}
+
+# --- Cognito ---
+# Depends on frontend so it can register the CloudFront URL as an OAuth callback.
+
+module "cognito" {
+  source = "./modules/cognito"
+
+  project_name          = var.project_name
+  cognito_domain_prefix = "${var.project_name}-${data.aws_caller_identity.current.account_id}"
+  callback_urls         = ["${module.frontend.cloudfront_url}/"]
+  logout_urls           = ["${module.frontend.cloudfront_url}/"]
+  tags                  = var.tags
+}
+
+# --- Frontend deploy (uploads index.html with injected runtime config) ---
+# Depends on both frontend infra and Cognito.
+
+module "frontend_deploy" {
+  source = "./modules/frontend-deploy"
+
+  frontend_bucket_name       = module.frontend.bucket_name
+  cloudfront_distribution_id = module.frontend.cloudfront_distribution_id
+  cognito_hosted_ui_base_url = module.cognito.hosted_ui_base_url
+  cognito_web_client_id      = module.cognito.web_client_id
+  http_api_endpoint          = module.api_gateway.http_api_endpoint
+  websocket_api_endpoint     = local.websocket_api_endpoint
 }
 
 # --- Monitoring ---

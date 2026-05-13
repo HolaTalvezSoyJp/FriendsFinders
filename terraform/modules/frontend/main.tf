@@ -42,7 +42,6 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
-  # SPA fallback: serve index.html for all 403/404s (client-side routing)
   custom_error_response {
     error_code         = 403
     response_code      = 200
