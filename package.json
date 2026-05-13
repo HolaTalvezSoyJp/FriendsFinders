@@ -17,11 +17,14 @@
     "@aws-sdk/client-ssm": "^3.600.0",
     "@aws-sdk/lib-dynamodb": "^3.600.0",
     "@aws-sdk/s3-request-presigner": "^3.600.0",
+    "jsonwebtoken": "^9.0.3",
+    "jwks-rsa": "^4.0.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.0",
     "@types/jest": "^29.5.0",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/uuid": "^9.0.0",
     "esbuild": "^0.28.0",
     "fast-check": "^3.15.0",

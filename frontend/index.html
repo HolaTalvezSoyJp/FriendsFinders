@@ -1,13 +1,359 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Nearby Friends</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nearby Friends</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f0f2f5; color: #1a1a1a; }
+    #app { max-width: 480px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 1.4rem; margin-bottom: 16px; }
+    h2 { font-size: 1rem; margin: 16px 0 8px; color: #444; }
+    .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    button { background: #0066ff; color: #fff; border: none; border-radius: 8px; padding: 10px 18px; cursor: pointer; font-size: .9rem; }
+    button:disabled { background: #aaa; cursor: default; }
+    button.danger { background: #e53e3e; }
+    input, select { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px; font-size: .9rem; margin-bottom: 8px; }
+    .status { font-size: .8rem; color: #666; margin-top: 6px; }
+    .status.ok { color: #2d8a4e; }
+    .status.err { color: #c0392b; }
+    .friend-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+    .friend-item:last-child { border-bottom: none; }
+    #log { font-size: .75rem; font-family: monospace; background: #1a1a1a; color: #7fff7f; padding: 10px; border-radius: 8px; height: 140px; overflow-y: auto; white-space: pre-wrap; }
+    .hidden { display: none; }
+    label { font-size: .85rem; color: #555; display: block; margin-bottom: 2px; }
+    .row { display: flex; gap: 8px; }
+    .row button { flex: 1; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <h1>📍 Nearby Friends</h1>
+
+  <!-- Auth section -->
+  <div id="section-auth" class="card">
+    <h2>Sign In</h2>
+    <p class="status" id="auth-status">Not signed in</p>
+    <div style="margin-top:10px">
+      <button id="btn-login">Sign in with Cognito</button>
+      <button id="btn-logout" class="danger hidden" style="margin-top:8px">Sign out</button>
+    </div>
+  </div>
+
+  <!-- Profile section -->
+  <div id="section-profile" class="card hidden">
+    <h2>My Profile</h2>
+    <label>Display name</label>
+    <input id="input-name" type="text" placeholder="Your name" />
+    <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+      <input id="input-discoverable" type="checkbox" style="width:auto" /> Discoverable to strangers
+    </label>
+    <button id="btn-save-profile">Save profile</button>
+    <p class="status" id="profile-status"></p>
+  </div>
+
+  <!-- Location section -->
+  <div id="section-location" class="card hidden">
+    <h2>Location</h2>
+    <div class="row">
+      <div style="flex:1">
+        <label>Latitude</label>
+        <input id="input-lat" type="number" step="any" placeholder="20.6597" />
+      </div>
+      <div style="flex:1">
+        <label>Longitude</label>
+        <input id="input-lng" type="number" step="any" placeholder="-103.3496" />
+      </div>
+    </div>
+    <div class="row">
+      <button id="btn-use-gps">Use GPS</button>
+      <button id="btn-connect-ws">Connect WebSocket</button>
+      <button id="btn-send-location" disabled>Send location</button>
+    </div>
+    <p class="status" id="ws-status">WebSocket: disconnected</p>
+  </div>
+
+  <!-- Nearby friends -->
+  <div id="section-friends" class="card hidden">
+    <h2>Nearby Friends</h2>
+    <div id="friends-list"><p class="status">No nearby friends yet.</p></div>
+  </div>
+
+  <!-- Nearby strangers -->
+  <div id="section-strangers" class="card hidden">
+    <h2>Nearby Strangers</h2>
+    <button id="btn-refresh-strangers">Refresh</button>
+    <div id="strangers-list" style="margin-top:8px"></div>
+  </div>
+
+  <!-- Friend requests -->
+  <div id="section-requests" class="card hidden">
+    <h2>Friend Requests</h2>
+    <button id="btn-refresh-requests">Refresh</button>
+    <div id="requests-list" style="margin-top:8px"></div>
+  </div>
+
+  <!-- WebSocket log -->
+  <div id="section-log" class="card hidden">
+    <h2>WebSocket log</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+// ── Config injected by Terraform ──────────────────────────────────────────────
+const CONFIG = window.__APP_CONFIG__ || {};
+const COGNITO_DOMAIN   = CONFIG.cognitoDomain;   // e.g. https://nearby-friends-xxx.auth.us-east-1.amazoncognito.com
+const WEB_CLIENT_ID    = CONFIG.webClientId;
+const HTTP_API         = CONFIG.httpApi;          // e.g. https://xxx.execute-api.us-east-1.amazonaws.com
+const WS_API           = CONFIG.wsApi;            // e.g. wss://xxx.execute-api.us-east-1.amazonaws.com/prod
+const REDIRECT_URI     = window.location.origin + '/';
+
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+function getTokens() {
+  try { return JSON.parse(sessionStorage.getItem('tokens') || 'null'); } catch { return null; }
+}
+function saveTokens(t) { sessionStorage.setItem('tokens', JSON.stringify(t)); }
+function clearTokens() { sessionStorage.removeItem('tokens'); }
+
+function parseJwt(token) {
+  try {
+    return JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+  } catch { return null; }
+}
+
+async function exchangeCode(code) {
+  const params = new URLSearchParams({
+    grant_type: 'authorization_code',
+    client_id: WEB_CLIENT_ID,
+    redirect_uri: REDIRECT_URI,
+    code,
+  });
+  const res = await fetch(`${COGNITO_DOMAIN}/oauth2/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
+  });
+  if (!res.ok) throw new Error('Token exchange failed');
+  return res.json();
+}
+
+// ── API helpers ───────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const tokens = getTokens();
+  const res = await fetch(HTTP_API + path, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${tokens.id_token}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`${res.status}: ${err}`);
+  }
+  return res.json().catch(() => ({}));
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let ws = null;
+let nearbyFriends = {};
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function show(...ids) { ids.forEach(id => document.getElementById(id).classList.remove('hidden')); }
+function hide(...ids) { ids.forEach(id => document.getElementById(id).classList.add('hidden')); }
+function setStatus(id, msg, ok) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status' + (ok === true ? ' ok' : ok === false ? ' err' : '');
+}
+function log(msg) {
+  const el = document.getElementById('log');
+  el.textContent += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderFriends() {
+  const list = document.getElementById('friends-list');
+  const entries = Object.values(nearbyFriends);
+  if (!entries.length) { list.innerHTML = '<p class="status">No nearby friends yet.</p>'; return; }
+  list.innerHTML = entries.map(f =>
+    `<div class="friend-item">
+      <span>${f.friendId}</span>
+      <span>${f.distanceMiles.toFixed(2)} mi · ${new Date(f.lastUpdated).toLocaleTimeString()}</span>
+    </div>`
+  ).join('');
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+function connectWs() {
+  const tokens = getTokens();
+  if (!tokens) return;
+  if (ws) ws.close();
+
+  const url = `${WS_API}?token=${encodeURIComponent(tokens.id_token)}`;
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    setStatus('ws-status', 'WebSocket: connected', true);
+    document.getElementById('btn-send-location').disabled = false;
+    log('Connected');
+  };
+  ws.onclose = () => {
+    setStatus('ws-status', 'WebSocket: disconnected');
+    document.getElementById('btn-send-location').disabled = true;
+    log('Disconnected');
+    ws = null;
+  };
+  ws.onerror = (e) => { log('WS error: ' + e.message); };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    log('← ' + JSON.stringify(msg));
+    if (msg.type === 'init.response') {
+      nearbyFriends = {};
+      (msg.friends || []).forEach(f => { nearbyFriends[f.friendId] = f; });
+      renderFriends();
+    } else if (msg.type === 'location.push') {
+      nearbyFriends[msg.friendId] = msg;
+      renderFriends();
+    }
+  };
+}
+
+function sendLocation() {
+  const lat = parseFloat(document.getElementById('input-lat').value);
+  const lng = parseFloat(document.getElementById('input-lng').value);
+  if (isNaN(lat) || isNaN(lng)) { alert('Enter valid coordinates first.'); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) { alert('WebSocket not connected.'); return; }
+  const msg = { action: 'location.update', latitude: lat, longitude: lng, timestamp: new Date().toISOString() };
+  ws.send(JSON.stringify(msg));
+  log('→ ' + JSON.stringify(msg));
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  // Handle OAuth callback
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if (code) {
+    history.replaceState({}, '', '/');
+    try {
+      const tokens = await exchangeCode(code);
+      saveTokens(tokens);
+    } catch (e) {
+      alert('Login failed: ' + e.message);
+    }
+  }
+
+  const tokens = getTokens();
+  if (tokens) {
+    const claims = parseJwt(tokens.id_token);
+    setStatus('auth-status', `Signed in as ${claims?.email || claims?.sub}`, true);
+    show('btn-logout');
+    hide('btn-login');
+    show('section-profile', 'section-location', 'section-friends', 'section-strangers', 'section-requests', 'section-log');
+
+    // Load existing profile
+    try {
+      const profile = await api('GET', `/users/${claims.sub}/profile`);
+      document.getElementById('input-name').value = profile.displayName || '';
+      document.getElementById('input-discoverable').checked = !!profile.discoverable;
+    } catch { /* new user, no profile yet */ }
+  }
+}
+
+// ── Event listeners ───────────────────────────────────────────────────────────
+document.getElementById('btn-login').onclick = () => {
+  const url = `${COGNITO_DOMAIN}/oauth2/authorize?` + new URLSearchParams({
+    response_type: 'code',
+    client_id: WEB_CLIENT_ID,
+    redirect_uri: REDIRECT_URI,
+    scope: 'openid email profile',
+  });
+  window.location.href = url;
+};
+
+document.getElementById('btn-logout').onclick = () => {
+  clearTokens();
+  if (ws) ws.close();
+  window.location.href = `${COGNITO_DOMAIN}/logout?client_id=${WEB_CLIENT_ID}&logout_uri=${encodeURIComponent(REDIRECT_URI)}`;
+};
+
+document.getElementById('btn-save-profile').onclick = async () => {
+  const tokens = getTokens();
+  const claims = parseJwt(tokens.id_token);
+  const body = {
+    displayName: document.getElementById('input-name').value,
+    discoverable: document.getElementById('input-discoverable').checked,
+  };
+  try {
+    await api('PUT', `/users/${claims.sub}/profile`, body);
+    setStatus('profile-status', 'Saved!', true);
+  } catch (e) {
+    setStatus('profile-status', e.message, false);
+  }
+};
+
+document.getElementById('btn-use-gps').onclick = () => {
+  navigator.geolocation.getCurrentPosition(pos => {
+    document.getElementById('input-lat').value = pos.coords.latitude.toFixed(6);
+    document.getElementById('input-lng').value = pos.coords.longitude.toFixed(6);
+  }, () => alert('GPS unavailable'));
+};
+
+document.getElementById('btn-connect-ws').onclick = connectWs;
+document.getElementById('btn-send-location').onclick = sendLocation;
+
+document.getElementById('btn-refresh-strangers').onclick = async () => {
+  try {
+    const list = await api('GET', '/nearby-strangers');
+    const el = document.getElementById('strangers-list');
+    if (!list.length) { el.innerHTML = '<p class="status">No nearby strangers.</p>'; return; }
+    el.innerHTML = list.map(s =>
+      `<div class="friend-item">
+        <span>${s.displayName} (${s.distanceMiles.toFixed(2)} mi)</span>
+        <button onclick="sendFriendRequest('${s.userId}')">Add</button>
+      </div>`
+    ).join('');
+  } catch (e) { alert(e.message); }
+};
+
+window.sendFriendRequest = async (toUserId) => {
+  try {
+    await api('POST', `/friend-requests/${toUserId}`);
+    alert('Friend request sent!');
+  } catch (e) { alert(e.message); }
+};
+
+document.getElementById('btn-refresh-requests').onclick = async () => {
+  try {
+    const list = await api('GET', '/friend-requests');
+    const el = document.getElementById('requests-list');
+    if (!list.length) { el.innerHTML = '<p class="status">No pending requests.</p>'; return; }
+    el.innerHTML = list.map(r =>
+      `<div class="friend-item">
+        <span>From: ${r.fromUserId}</span>
+        <div style="display:flex;gap:6px">
+          <button onclick="acceptRequest('${r.requestId}')">Accept</button>
+          <button class="danger" onclick="declineRequest('${r.requestId}')">Decline</button>
+        </div>
+      </div>`
+    ).join('');
+  } catch (e) { alert(e.message); }
+};
+
+window.acceptRequest = async (id) => {
+  try { await api('PUT', `/friend-requests/${id}/accept`); alert('Accepted!'); document.getElementById('btn-refresh-requests').click(); }
+  catch (e) { alert(e.message); }
+};
+window.declineRequest = async (id) => {
+  try { await api('PUT', `/friend-requests/${id}/decline`); document.getElementById('btn-refresh-requests').click(); }
+  catch (e) { alert(e.message); }
+};
+
+init();
+</script>
+</body>
 </html>

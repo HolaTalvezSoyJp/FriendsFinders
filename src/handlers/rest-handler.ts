@@ -79,7 +79,9 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 }
 
 function getAuthUserId(event: APIGatewayProxyEventV2): string | null {
-  return event.headers?.['x-user-id'] || null;
+  // API Gateway JWT authorizer injects verified Cognito claims
+  const claims = (event.requestContext as any)?.authorizer?.jwt?.claims;
+  return claims?.sub || null;
 }
 
 function extractPathParam(path: string, pattern: RegExp): string | null {

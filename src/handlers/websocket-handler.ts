@@ -1,4 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
+import * as jwt from 'jsonwebtoken';
+import * as jwksClient from 'jwks-rsa';
 import {
   putConnection,
   deleteConnection,
@@ -35,9 +37,10 @@ async function handleConnect(event: APIGatewayProxyEvent, connectionId: string):
   if (!token) {
     return { statusCode: 401, body: 'Unauthorized' };
   }
-
-  // For MVP: token IS the userId
-  const userId = token;
+  const userId = await verifyToken(token);
+  if (!userId) {
+    return { statusCode: 401, body: 'Unauthorized' };
+  }
   const config = await getConfig();
   const now = new Date();
   const expiresAt = Math.floor(now.getTime() / 1000) + config.inactivityTtlSeconds;
@@ -127,4 +130,23 @@ async function handleLocationUpdate(event: APIGatewayProxyEvent, connectionId: s
   );
 
   return { statusCode: 200, body: 'OK' };
+}
+
+const jwks = jwksClient.default({
+  jwksUri: `https://cognito-idp.${process.env.AWS_REGION}.amazonaws.com/${process.env.COGNITO_USER_POOL_ID}/.well-known/jwks.json`,
+  cache: true,
+  rateLimit: true,
+});
+
+async function verifyToken(token: string): Promise<string | null> {
+  try {
+    const decoded = jwt.decode(token, { complete: true });
+    if (!decoded || typeof decoded === 'string') return null;
+
+    const key = await jwks.getSigningKey(decoded.header.kid);
+    const verified = jwt.verify(token, key.getPublicKey(), { algorithms: ['RS256'] }) as jwt.JwtPayload;
+    return verified.sub || null;
+  } catch {
+    return null;
+  }
 }
