@@ -1,6 +1,6 @@
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { useEffect } from 'react';
-import { FriendLocation } from '../useNearbyFriends';
+import { FriendLocation } from './useNearbyFriends';
 
 function RecenterMap({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap();

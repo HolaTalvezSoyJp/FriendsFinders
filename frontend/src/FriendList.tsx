@@ -29,7 +29,9 @@ export default function FriendList({ friends, friendLocations }: Props) {
           {location ? (
             <span style={{ float: 'right', color: '#555' }}>{location.distanceMiles.toFixed(2)} mi</span>
           ) : (
-            <span style={{ float: 'right', color: '#bbb' }}>Offline</span>
+            <span style={{ float: 'right', color: '#bbb' }} title="Share location and keep WebSocket open for live distance">
+              Offline
+            </span>
           )}
           <br />
           {location ? (
@@ -37,7 +39,7 @@ export default function FriendList({ friends, friendLocations }: Props) {
               Updated {new Date(location.lastUpdated).toLocaleTimeString()}
             </small>
           ) : (
-            <small style={{ color: '#bbb' }}>No recent location</small>
+            <small style={{ color: '#bbb' }}>No live location yet — allow GPS and WebSocket</small>
           )}
         </li>
       ))}

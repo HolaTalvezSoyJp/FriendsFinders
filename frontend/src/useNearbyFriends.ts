@@ -9,9 +9,23 @@ export interface FriendLocation {
   distanceMiles: number;
 }
 
-export function useNearbyFriends(token: string | null) {
+function sendLocationUpdate(ws: WebSocket, lat: number, lng: number) {
+  ws.send(
+    JSON.stringify({
+      action: 'location.update',
+      latitude: lat,
+      longitude: lng,
+      timestamp: new Date().toISOString(),
+    })
+  );
+}
+
+/** Live friend locations via WebSocket. Pass friendsSignature (e.g. sorted friend ids) to refresh the server friend list after accept without reconnecting. */
+export function useNearbyFriends(token: string | null, friendsSignature?: string) {
   const [friends, setFriends] = useState<FriendLocation[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const signatureRef = useRef(friendsSignature);
+  signatureRef.current = friendsSignature;
 
   useEffect(() => {
     if (!token) return;
@@ -31,16 +45,25 @@ export function useNearbyFriends(token: string | null) {
       }
     };
 
-    // Send location updates every 30 seconds
+    ws.onopen = () => {
+      navigator.geolocation.getCurrentPosition(
+        ({ coords }) => {
+          sendLocationUpdate(ws, coords.latitude, coords.longitude);
+        },
+        () => {
+          /* GPS denied — interval may still run later */
+        }
+      );
+      const sig = signatureRef.current;
+      if (sig) {
+        ws.send(JSON.stringify({ action: 'friends.refresh' }));
+      }
+    };
+
     const interval = setInterval(() => {
       if (ws.readyState !== WebSocket.OPEN) return;
       navigator.geolocation.getCurrentPosition(({ coords }) => {
-        ws.send(JSON.stringify({
-          action: 'location.update',
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          timestamp: new Date().toISOString(),
-        }));
+        sendLocationUpdate(ws, coords.latitude, coords.longitude);
       });
     }, 30_000);
 
@@ -49,6 +72,14 @@ export function useNearbyFriends(token: string | null) {
       ws.close();
     };
   }, [token]);
+
+  useEffect(() => {
+    if (!friendsSignature) return;
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ action: 'friends.refresh' }));
+    }
+  }, [friendsSignature]);
 
   return friends;
 }

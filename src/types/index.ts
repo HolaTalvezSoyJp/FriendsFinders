@@ -52,6 +52,17 @@ export interface NearbyStrangerEntry {
   distanceMiles: number;
 }
 
+/** Snapshot from GET /nearby-friends (friends within radius with active location). */
+export interface NearbyFriendHttpEntry {
+  friendId: string;
+  displayName: string;
+  profilePictureUrl?: string;
+  latitude: number;
+  longitude: number;
+  lastUpdated: string;
+  distanceMiles: number;
+}
+
 export interface LocationUpdateMessage {
   action: 'location.update';
   latitude: number;

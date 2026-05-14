@@ -42,23 +42,25 @@ export async function handler(event: DynamoDBStreamEvent): Promise<void> {
 
       for (const conn of friendConnections) {
         if (conn.expiresAt <= currentTime) continue;
-        if (conn.latitude === undefined || conn.longitude === undefined) continue;
 
-        // Compute distance between updated user and friend
-        const distance = haversine(latitude, longitude, conn.latitude, conn.longitude);
+        let distanceMiles: number;
+        if (conn.latitude === undefined || conn.longitude === undefined) {
+          // Subscriber has not sent a location yet — still notify so they see the friend after accepting, etc.
+          distanceMiles = 0;
+        } else {
+          distanceMiles = haversine(latitude, longitude, conn.latitude, conn.longitude);
+          if (distanceMiles > config.searchRadiusMiles) continue;
+        }
 
-        if (distance <= config.searchRadiusMiles) {
-          // Friend is within radius — push location update
-          const message = buildLocationPush(userId, latitude, longitude, timestamp, distance);
-          try {
-            await postToConnection(conn.connectionId, message);
-          } catch (err: unknown) {
-            const error = err as { name?: string; statusCode?: number };
-            if (error.name === 'GoneException' || error.statusCode === 410) {
-              console.log(`Connection ${conn.connectionId} is gone, skipping`);
-            } else {
-              console.error(`Failed to post to connection ${conn.connectionId}:`, err);
-            }
+        const message = buildLocationPush(userId, latitude, longitude, timestamp, distanceMiles);
+        try {
+          await postToConnection(conn.connectionId, message);
+        } catch (err: unknown) {
+          const error = err as { name?: string; statusCode?: number };
+          if (error.name === 'GoneException' || error.statusCode === 410) {
+            console.log(`Connection ${conn.connectionId} is gone, skipping`);
+          } else {
+            console.error(`Failed to post to connection ${conn.connectionId}:`, err);
           }
         }
       }

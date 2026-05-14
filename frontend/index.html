@@ -74,15 +74,17 @@
     <p class="status" id="ws-status">WebSocket: disconnected</p>
   </div>
 
-  <!-- Nearby friends -->
+  <!-- Nearby friends (WebSocket; includes all online friends with location — not the same as Discover) -->
   <div id="section-friends" class="card hidden">
-    <h2>Nearby Friends</h2>
+    <h2>Friends nearby (live)</h2>
+    <p class="status" style="margin-bottom:8px">From your WebSocket session. After you accept a friend request, they disappear from <strong>Discover</strong> (that list is only non-friends).</p>
     <div id="friends-list"><p class="status">No nearby friends yet.</p></div>
   </div>
 
-  <!-- Nearby strangers -->
+  <!-- Nearby strangers (HTTP — excludes existing friends) -->
   <div id="section-strangers" class="card hidden">
-    <h2>Nearby Strangers</h2>
+    <h2>Discover — non-friends nearby</h2>
+    <p class="status" style="margin-bottom:8px">People here are not your friends yet. After you become friends, use <strong>Friends nearby</strong> above.</p>
     <button id="btn-refresh-strangers">Refresh</button>
     <div id="strangers-list" style="margin-top:8px"></div>
   </div>
@@ -200,6 +202,24 @@ function connectWs() {
     setStatus('ws-status', 'WebSocket: connected', true);
     document.getElementById('btn-send-location').disabled = false;
     log('Connected');
+    const lat = parseFloat(document.getElementById('input-lat').value);
+    const lng = parseFloat(document.getElementById('input-lng').value);
+    if (!isNaN(lat) && !isNaN(lng) && ws && ws.readyState === WebSocket.OPEN) {
+      const msg = { action: 'location.update', latitude: lat, longitude: lng, timestamp: new Date().toISOString() };
+      ws.send(JSON.stringify(msg));
+      log('→ ' + JSON.stringify(msg) + ' (auto on connect)');
+    } else if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (!ws || ws.readyState !== WebSocket.OPEN) return;
+          const msg = { action: 'location.update', latitude: pos.coords.latitude, longitude: pos.coords.longitude, timestamp: new Date().toISOString() };
+          ws.send(JSON.stringify(msg));
+          log('→ ' + JSON.stringify(msg) + ' (GPS on connect)');
+        },
+        () => { log('GPS unavailable on connect; set coordinates manually and Send location'); },
+        { enableHighAccuracy: true, timeout: 10_000 }
+      );
+    }
   };
   ws.onclose = () => {
     setStatus('ws-status', 'WebSocket: disconnected');
@@ -345,7 +365,15 @@ document.getElementById('btn-refresh-requests').onclick = async () => {
 };
 
 window.acceptRequest = async (id) => {
-  try { await api('PUT', `/friend-requests/${id}/accept`); alert('Accepted!'); document.getElementById('btn-refresh-requests').click(); }
+  try {
+    await api('PUT', `/friend-requests/${id}/accept`);
+    alert('Accepted!');
+    document.getElementById('btn-refresh-requests').click();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ action: 'friends.refresh' }));
+      log('→ friends.refresh');
+    }
+  }
   catch (e) { alert(e.message); }
 };
 window.declineRequest = async (id) => {

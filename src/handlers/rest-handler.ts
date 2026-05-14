@@ -18,7 +18,7 @@ import {
 import { getConfig } from '../utils/config';
 import { haversine } from '../utils/distance';
 import { generateUploadUrl, generateDownloadUrl } from '../utils/s3-client';
-import { UserProfile, FriendRequest, NearbyStrangerEntry } from '../types';
+import { UserProfile, FriendRequest, NearbyStrangerEntry, NearbyFriendHttpEntry, ConnectionRecord } from '../types';
 
 export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
   const method = event.requestContext.http.method;
@@ -69,6 +69,11 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     // PUT /users/{userId}/profile
     if (method === 'PUT' && path.match(/^\/users\/[^/]+\/profile$/)) {
       return handleUpdateProfile(event);
+    }
+
+    // GET /nearby-friends (must be before nearby-strangers; neither uses path params)
+    if (method === 'GET' && path === '/nearby-friends') {
+      return handleNearbyFriends(event);
     }
 
     // GET /nearby-strangers
@@ -322,6 +327,64 @@ async function handleGetUploadUrl(event: APIGatewayProxyEventV2): Promise<APIGat
 
   const { uploadUrl, s3Key } = await generateUploadUrl(userId);
   return response(200, { uploadUrl, s3Key });
+}
+
+// --- GET /nearby-friends ---
+async function handleNearbyFriends(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const userId = getAuthUserId(event);
+  if (!userId) return response(401, { error: 'Unauthorized' });
+
+  const userConnections = await getConnectionsByUserId(userId);
+  const now = Math.floor(Date.now() / 1000);
+  const activeUserConn = userConnections.find(
+    c => c.latitude !== undefined && c.longitude !== undefined && c.expiresAt > now
+  );
+
+  if (!activeUserConn || activeUserConn.latitude === undefined || activeUserConn.longitude === undefined) {
+    return response(400, { error: 'Your location is not available. Send a location update first.' });
+  }
+
+  const config = await getConfig();
+  const userLat = activeUserConn.latitude;
+  const userLng = activeUserConn.longitude;
+
+  const friendships = await getFriends(userId);
+  const results: NearbyFriendHttpEntry[] = [];
+
+  for (const f of friendships) {
+    const friendConnections = await getConnectionsByUserId(f.friendId);
+    let best: ConnectionRecord | undefined;
+    for (const conn of friendConnections) {
+      if (conn.expiresAt <= now) continue;
+      if (conn.latitude === undefined || conn.longitude === undefined || !conn.timestamp) continue;
+      if (!best || (conn.timestamp > best.timestamp!)) best = conn;
+    }
+    if (!best || best.latitude === undefined || best.longitude === undefined || !best.timestamp) continue;
+
+    const distance = haversine(userLat, userLng, best.latitude, best.longitude);
+    if (distance > config.searchRadiusMiles) continue;
+
+    const profile = await getUser(f.friendId);
+    if (!profile) continue;
+
+    let profilePictureUrl: string | undefined;
+    if (profile.profilePictureKey) {
+      profilePictureUrl = await generateDownloadUrl(profile.profilePictureKey);
+    }
+
+    results.push({
+      friendId: f.friendId,
+      displayName: profile.displayName,
+      profilePictureUrl,
+      latitude: best.latitude,
+      longitude: best.longitude,
+      lastUpdated: best.timestamp,
+      distanceMiles: Math.round(distance * 100) / 100,
+    });
+  }
+
+  results.sort((a, b) => a.distanceMiles - b.distanceMiles);
+  return response(200, results);
 }
 
 // --- GET /nearby-strangers ---
