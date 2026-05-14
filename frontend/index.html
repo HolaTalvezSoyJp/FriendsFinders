@@ -3,110 +3,731 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Nearby Friends</title>
+  <meta name="color-scheme" content="light" />
+  <title>FriendsFinders</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
+    :root {
+      --bg: #f7f6f2;
+      --surface: #ffffff;
+      --sunken: #faf9f5;
+      --hairline: #e7e4db;
+      --border: #d6d2c6;
+      --border-strong: #c2bdaf;
+      --ink-1: #131618;
+      --ink-2: #5a5f63;
+      --ink-3: #8a8f93;
+      --ink-disabled: #b5b9bc;
+      --accent: #0f4c4a;
+      --accent-hover: #0c3e3c;
+      --accent-tint: #e3ecea;
+      --accent-ring: rgba(15, 76, 74, 0.18);
+      --live: #2f9e6a;
+      --live-tint: #e6f4ec;
+      --danger: #b3261e;
+      --danger-tint: #fbecea;
+      --shadow-card: 0 1px 2px rgba(19, 22, 24, 0.04);
+      --shadow-elevated: 0 8px 28px rgba(19, 22, 24, 0.08), 0 1px 2px rgba(19, 22, 24, 0.04);
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #f0f2f5; color: #1a1a1a; }
-    #app { max-width: 480px; margin: 0 auto; padding: 16px; }
-    h1 { font-size: 1.4rem; margin-bottom: 16px; }
-    h2 { font-size: 1rem; margin: 16px 0 8px; color: #444; }
-    .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-    button { background: #0066ff; color: #fff; border: none; border-radius: 8px; padding: 10px 18px; cursor: pointer; font-size: .9rem; }
-    button:disabled { background: #aaa; cursor: default; }
-    button.danger { background: #e53e3e; }
-    button.secondary { background: #666; }
-    input, select { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px; font-size: .9rem; margin-bottom: 8px; }
-    .status { font-size: .8rem; color: #666; margin-top: 6px; }
-    .status.ok { color: #2d8a4e; }
-    .status.err { color: #c0392b; }
-    .friend-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
-    .friend-item:last-child { border-bottom: none; }
-    #log { font-size: .75rem; font-family: monospace; background: #1a1a1a; color: #7fff7f; padding: 10px; border-radius: 8px; height: 140px; overflow-y: auto; white-space: pre-wrap; }
-    .hidden { display: none; }
-    label { font-size: .85rem; color: #555; display: block; margin-bottom: 2px; }
+    html, body { min-height: 100%; }
+
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--ink-1);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      font-feature-settings: "cv11", "ss01";
+    }
+
+    #app {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 28px 16px 80px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      letter-spacing: -0.022em;
+      color: var(--ink-1);
+      line-height: 1.2;
+    }
+
+    h2 {
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--ink-3);
+      margin: 0 0 14px;
+    }
+
+    p { font-size: 13px; color: var(--ink-2); }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--hairline);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 12px;
+      box-shadow: var(--shadow-card);
+    }
+
+    /* ── Buttons ──────────────────────────────────────────────── */
+    button {
+      background: var(--accent);
+      color: #ffffff;
+      border: 1px solid var(--accent);
+      border-radius: 9px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: inherit;
+      letter-spacing: -0.005em;
+      transition: background 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+    }
+    button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+    button:active { background: var(--accent-hover); }
+    button:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px var(--accent-ring);
+    }
+    button:disabled {
+      background: var(--sunken);
+      color: var(--ink-disabled);
+      border-color: var(--hairline);
+      cursor: default;
+    }
+    button:disabled:hover { background: var(--sunken); border-color: var(--hairline); }
+
+    button.secondary {
+      background: var(--surface);
+      color: var(--ink-1);
+      border: 1px solid var(--border);
+    }
+    button.secondary:hover {
+      background: var(--sunken);
+      border-color: var(--border-strong);
+    }
+    button.secondary:disabled {
+      background: var(--surface);
+      color: var(--ink-disabled);
+      border-color: var(--hairline);
+    }
+    button.secondary:disabled:hover {
+      background: var(--surface);
+    }
+
+    button.danger {
+      background: transparent;
+      color: var(--danger);
+      border: 1px solid var(--hairline);
+    }
+    button.danger:hover {
+      background: var(--danger-tint);
+      border-color: var(--danger);
+    }
+
+    /* ── Inputs ───────────────────────────────────────────────── */
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      color: var(--ink-1);
+      font-size: 13px;
+      font-family: inherit;
+      margin-bottom: 10px;
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+    input::placeholder { color: var(--ink-3); }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-ring);
+    }
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      padding: 0;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type="number"] { -moz-appearance: textfield; }
+
+    label {
+      font-size: 12px;
+      color: var(--ink-2);
+      display: block;
+      margin-bottom: 6px;
+      letter-spacing: 0.005em;
+    }
+
+    /* ── Status text / pills ──────────────────────────────────── */
+    .status {
+      font-size: 12px;
+      color: var(--ink-3);
+      margin-top: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .status.ok,
+    .status.err {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-weight: 500;
+      font-size: 11.5px;
+      line-height: 1.4;
+    }
+    .status.ok {
+      background: var(--live-tint);
+      color: #1f6f48;
+    }
+    .status.ok::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--live);
+      box-shadow: 0 0 0 3px rgba(47, 158, 106, 0.18);
+    }
+    .status.err {
+      background: var(--danger-tint);
+      color: var(--danger);
+    }
+
+    /* ── List rows (friends / strangers / requests) ───────────── */
+    .friend-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--hairline);
+      font-size: 13px;
+    }
+    .friend-item:first-child { padding-top: 4px; }
+    .friend-item:last-child { border-bottom: none; padding-bottom: 0; }
+
+    .friend-item .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--sunken);
+      border: 1px solid var(--hairline);
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: -0.01em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      text-transform: uppercase;
+    }
+
+    .friend-item .meta {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .friend-item .meta .name {
+      color: var(--ink-1);
+      font-weight: 500;
+      font-size: 13.5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .friend-item .meta .sub {
+      color: var(--ink-3);
+      font-size: 11.5px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .friend-item .trailing {
+      color: var(--ink-2);
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+      flex-shrink: 0;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .friend-item .trailing .distance {
+      font-weight: 600;
+      color: var(--ink-1);
+    }
+
+    .friend-item button {
+      padding: 6px 12px;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .friend-item .actions {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    /* ── Log ──────────────────────────────────────────────────── */
+    #log {
+      font-size: 11px;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--sunken);
+      color: var(--ink-2);
+      border: 1px solid var(--hairline);
+      padding: 12px 14px;
+      border-radius: 9px;
+      height: 160px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      line-height: 1.7;
+    }
+    #log::-webkit-scrollbar { width: 6px; }
+    #log::-webkit-scrollbar-track { background: transparent; }
+    #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    #log::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
+
+    .hidden { display: none !important; }
+
     .row { display: flex; gap: 8px; }
+    .row > div { min-width: 0; }
     .row button { flex: 1; }
-    .friends-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+
+    .friends-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      gap: 12px;
+    }
     .friends-header h2 { margin: 0; }
-    .btn-small { padding: 5px 10px; font-size: .8rem; }
+
+    .btn-small {
+      padding: 6px 12px;
+      font-size: 11.5px;
+      font-weight: 500;
+    }
+
+    ::selection { background: var(--accent-tint); color: var(--ink-1); }
+
+    /* ── Auth screen (logged out) ─────────────────────────────── */
+    .auth-card {
+      margin-top: 56px;
+      padding: 32px 28px 28px;
+      box-shadow: var(--shadow-elevated);
+      border-radius: 16px;
+    }
+    .auth-brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 22px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-1);
+      letter-spacing: -0.005em;
+    }
+    .auth-brand::before {
+      content: "";
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--accent-tint);
+      border: 2px solid var(--accent);
+      box-sizing: border-box;
+      flex-shrink: 0;
+    }
+    .auth-card h1 {
+      font-size: 22px;
+      margin-bottom: 8px;
+      letter-spacing: -0.022em;
+    }
+    .auth-tagline {
+      color: var(--ink-2);
+      font-size: 13.5px;
+      line-height: 1.55;
+      margin-bottom: 24px;
+    }
+    .auth-card #btn-login {
+      width: 100%;
+      padding: 12px 16px;
+      font-size: 13.5px;
+      font-weight: 500;
+    }
+    .auth-footnote {
+      margin-top: 20px;
+      padding-top: 18px;
+      border-top: 1px solid var(--hairline);
+      text-align: center;
+      font-size: 11.5px;
+      color: var(--ink-3);
+      line-height: 1.5;
+    }
+
+    /* ── Per-tab header ───────────────────────────────────────── */
+    .tab-header {
+      padding: 4px 4px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .tab-header::before {
+      content: "";
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent-tint);
+      border: 2px solid var(--accent);
+      box-sizing: border-box;
+      flex-shrink: 0;
+    }
+    .tab-header h1 { margin: 0; font-size: 22px; }
+
+    /* ── Tab views ────────────────────────────────────────────── */
+    .tab-view { animation: tabFadeIn 220ms cubic-bezier(0.2, 0.7, 0.3, 1); }
+    @keyframes tabFadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Bottom navigation ────────────────────────────────────── */
+    #tab-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 50;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(16px) saturate(160%);
+      -webkit-backdrop-filter: blur(16px) saturate(160%);
+      border-top: 1px solid var(--hairline);
+    }
+    .tab-nav-inner {
+      max-width: 480px;
+      margin: 0 auto;
+      display: flex;
+      padding: 8px 10px calc(10px + env(safe-area-inset-bottom));
+      gap: 4px;
+    }
+    .tab-btn {
+      flex: 1;
+      background: transparent;
+      border: none;
+      padding: 8px 4px 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      color: var(--ink-3);
+      font-size: 10.5px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      border-radius: 10px;
+      transition: color 140ms ease, background 140ms ease;
+      font-family: inherit;
+    }
+    .tab-btn:hover {
+      color: var(--ink-2);
+      background: transparent;
+    }
+    .tab-btn.active {
+      color: var(--accent);
+      background: var(--accent-tint);
+    }
+    .tab-btn:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 2px var(--accent-ring);
+    }
+    .tab-btn:disabled { background: transparent; color: var(--ink-disabled); }
+    .tab-btn:disabled:hover { background: transparent; }
+    .tab-btn svg {
+      width: 20px;
+      height: 20px;
+      stroke-width: 1.7;
+    }
+    .tab-btn span { line-height: 1; }
+
+    body.authenticated #app {
+      padding-bottom: 100px;
+    }
+
+    /* ── Toggle switch (discoverable) ─────────────────────────── */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 0 14px;
+      border-top: 1px solid var(--hairline);
+      margin-top: 4px;
+    }
+    .toggle-row .toggle-meta {
+      flex: 1;
+      min-width: 0;
+    }
+    .toggle-row .toggle-title {
+      font-size: 13.5px;
+      color: var(--ink-1);
+      font-weight: 500;
+    }
+    .toggle-row .toggle-desc {
+      font-size: 11.5px;
+      color: var(--ink-3);
+      margin-top: 2px;
+      line-height: 1.45;
+    }
+    .toggle-switch {
+      position: relative;
+      width: 40px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+    .toggle-switch input {
+      position: absolute;
+      opacity: 0;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      cursor: pointer;
+      z-index: 2;
+    }
+    .toggle-switch .track {
+      position: absolute;
+      inset: 0;
+      background: var(--border);
+      border-radius: 999px;
+      transition: background 160ms ease;
+    }
+    .toggle-switch .track::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      background: #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(19, 22, 24, 0.18);
+      transition: transform 160ms cubic-bezier(0.2, 0.7, 0.3, 1);
+    }
+    .toggle-switch input:checked + .track { background: var(--accent); }
+    .toggle-switch input:checked + .track::after { transform: translateX(16px); }
+    .toggle-switch input:focus-visible + .track {
+      box-shadow: 0 0 0 3px var(--accent-ring);
+    }
+
+    /* ── Account card ─────────────────────────────────────────── */
+    #section-account #btn-logout {
+      margin-top: 12px;
+      width: 100%;
+    }
+    #section-account #auth-status {
+      display: inline-flex;
+      margin-top: 0;
+    }
+
+    /* ── Collapsible log section ──────────────────────────────── */
+    #section-log { padding: 0; overflow: hidden; }
+    #section-log summary {
+      cursor: pointer;
+      padding: 18px 20px;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--ink-3);
+      list-style: none;
+      user-select: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #section-log summary::-webkit-details-marker { display: none; }
+    #section-log summary::after {
+      content: "+";
+      font-size: 16px;
+      font-weight: 400;
+      color: var(--ink-3);
+      line-height: 1;
+    }
+    #section-log details[open] summary { border-bottom: 1px solid var(--hairline); }
+    #section-log details[open] summary::after { content: "−"; }
+    #section-log #log { margin: 16px 20px 20px; }
+
+    /* ── Profile section labels ───────────────────────────────── */
+    #section-profile #profile-status {
+      margin-top: 12px;
+    }
   </style>
 </head>
 <body>
 <div id="app">
-  <h1>📍 Nearby Friends</h1>
 
-  <!-- Auth section -->
-  <div id="section-auth" class="card">
-    <h2>Sign In</h2>
-    <p class="status" id="auth-status">Not signed in</p>
-    <div style="margin-top:10px">
-      <button id="btn-login">Sign in with Cognito</button>
-      <button id="btn-logout" class="danger hidden" style="margin-top:8px">Sign out</button>
-    </div>
+  <!-- ── AUTH (logged out only) ─────────────────────────────────── -->
+  <div id="section-auth" class="card auth-card">
+    <div class="auth-brand">FriendsFinders</div>
+    <h1>Find your people.</h1>
+    <p class="auth-tagline">Real-time location with the people you trust. Sign in to see where your friends are.</p>
+    <button id="btn-login">Continue with Cognito</button>
+    <p class="auth-footnote">Location data is only shared with friends you've approved.</p>
   </div>
 
-  <!-- Profile section -->
-  <div id="section-profile" class="card hidden">
-    <h2>My Profile</h2>
-    <label>Display name</label>
-    <input id="input-name" type="text" placeholder="Your name" />
-    <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-      <input id="input-discoverable" type="checkbox" style="width:auto" /> Discoverable to strangers
-    </label>
-    <button id="btn-save-profile">Save profile</button>
-    <p class="status" id="profile-status"></p>
-  </div>
+  <!-- ── TABS (logged in only) ──────────────────────────────────── -->
+  <div id="tabs-container" class="hidden">
 
-  <!-- Location section -->
-  <div id="section-location" class="card hidden">
-    <h2>Location</h2>
-    <div class="row">
-      <div style="flex:1">
-        <label>Latitude</label>
-        <input id="input-lat" type="number" step="any" placeholder="20.6597" />
+    <!-- TAB: FRIENDS -->
+    <section class="tab-view" id="tab-friends">
+      <header class="tab-header"><h1>Friends</h1></header>
+
+      <div id="section-location" class="card">
+        <h2>Location</h2>
+        <div class="row">
+          <div style="flex:1">
+            <label>Latitude</label>
+            <input id="input-lat" type="number" step="any" placeholder="20.6597" />
+          </div>
+          <div style="flex:1">
+            <label>Longitude</label>
+            <input id="input-lng" type="number" step="any" placeholder="-103.3496" />
+          </div>
+        </div>
+        <div class="row">
+          <button id="btn-use-gps" class="secondary">Use GPS</button>
+          <button id="btn-connect-ws">Connect</button>
+          <button id="btn-send-location" disabled>Send</button>
+        </div>
+        <p class="status" id="ws-status">WebSocket: disconnected</p>
       </div>
-      <div style="flex:1">
-        <label>Longitude</label>
-        <input id="input-lng" type="number" step="any" placeholder="-103.3496" />
+
+      <div id="section-friends" class="card">
+        <div class="friends-header">
+          <h2>Nearby Friends</h2>
+          <button id="btn-refresh-friends" class="secondary btn-small" disabled>Refresh</button>
+        </div>
+        <div id="friends-list"><p class="status">No nearby friends yet.</p></div>
       </div>
-    </div>
-    <div class="row">
-      <button id="btn-use-gps">Use GPS</button>
-      <button id="btn-connect-ws">Connect WebSocket</button>
-      <button id="btn-send-location" disabled>Send location</button>
-    </div>
-    <p class="status" id="ws-status">WebSocket: disconnected</p>
-  </div>
+    </section>
 
-  <!-- Nearby friends -->
-  <div id="section-friends" class="card hidden">
-    <div class="friends-header">
-      <h2>Nearby Friends</h2>
-      <button id="btn-refresh-friends" class="secondary btn-small" disabled>🔄 Refresh</button>
-    </div>
-    <div id="friends-list"><p class="status">No nearby friends yet.</p></div>
-  </div>
+    <!-- TAB: DISCOVER -->
+    <section class="tab-view hidden" id="tab-discover">
+      <header class="tab-header"><h1>Discover</h1></header>
 
-  <!-- Nearby strangers -->
-  <div id="section-strangers" class="card hidden">
-    <h2>Nearby Strangers</h2>
-    <button id="btn-refresh-strangers">Refresh</button>
-    <div id="strangers-list" style="margin-top:8px"></div>
-  </div>
+      <div id="section-strangers" class="card">
+        <div class="friends-header">
+          <h2>Nearby Strangers</h2>
+          <button id="btn-refresh-strangers" class="secondary btn-small">Refresh</button>
+        </div>
+        <div id="strangers-list"><p class="status">Tap refresh to find people near you.</p></div>
+      </div>
+    </section>
 
-  <!-- Friend requests -->
-  <div id="section-requests" class="card hidden">
-    <h2>Friend Requests</h2>
-    <button id="btn-refresh-requests">Refresh</button>
-    <div id="requests-list" style="margin-top:8px"></div>
-  </div>
+    <!-- TAB: REQUESTS -->
+    <section class="tab-view hidden" id="tab-requests">
+      <header class="tab-header"><h1>Requests</h1></header>
 
-  <!-- WebSocket log -->
-  <div id="section-log" class="card hidden">
-    <h2>WebSocket log</h2>
-    <div id="log"></div>
+      <div id="section-requests" class="card">
+        <div class="friends-header">
+          <h2>Friend Requests</h2>
+          <button id="btn-refresh-requests" class="secondary btn-small">Refresh</button>
+        </div>
+        <div id="requests-list"><p class="status">No pending requests.</p></div>
+      </div>
+    </section>
+
+    <!-- TAB: PROFILE -->
+    <section class="tab-view hidden" id="tab-profile">
+      <header class="tab-header"><h1>Profile</h1></header>
+
+      <div id="section-profile" class="card">
+        <h2>Display</h2>
+        <label>Display name</label>
+        <input id="input-name" type="text" placeholder="Your name" />
+        <div class="toggle-row">
+          <div class="toggle-meta">
+            <div class="toggle-title">Discoverable to strangers</div>
+            <div class="toggle-desc">Opt-in users nearby can send you a friend request.</div>
+          </div>
+          <label class="toggle-switch" aria-label="Discoverable to strangers">
+            <input id="input-discoverable" type="checkbox" />
+            <span class="track"></span>
+          </label>
+        </div>
+        <button id="btn-save-profile">Save</button>
+        <p class="status" id="profile-status"></p>
+      </div>
+
+      <div id="section-account" class="card">
+        <h2>Account</h2>
+        <p class="status" id="auth-status">Not signed in</p>
+        <button id="btn-logout" class="danger">Sign out</button>
+      </div>
+
+      <div id="section-log" class="card">
+        <details>
+          <summary>WebSocket log</summary>
+          <div id="log"></div>
+        </details>
+      </div>
+    </section>
+
   </div>
 </div>
+
+<!-- ── BOTTOM NAVIGATION ───────────────────────────────────────── -->
+<nav id="tab-nav" class="hidden" aria-label="Primary">
+  <div class="tab-nav-inner">
+    <button type="button" class="tab-btn active" data-tab="friends" aria-label="Friends">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+        <circle cx="8.5" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+        <path d="M16.5 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+      <span>Friends</span>
+    </button>
+    <button type="button" class="tab-btn" data-tab="discover" aria-label="Discover">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/>
+        <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+      </svg>
+      <span>Discover</span>
+    </button>
+    <button type="button" class="tab-btn" data-tab="requests" aria-label="Requests">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
+        <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
+      </svg>
+      <span>Requests</span>
+    </button>
+    <button type="button" class="tab-btn" data-tab="profile" aria-label="Profile">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+        <circle cx="12" cy="7" r="4"/>
+      </svg>
+      <span>Profile</span>
+    </button>
+  </div>
+</nav>
 
 <script>
 // ── Config injected by Terraform ──────────────────────────────────────────────
@@ -183,16 +804,31 @@ function log(msg) {
   el.scrollTop = el.scrollHeight;
 }
 
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+function initialOf(str) {
+  const s = String(str ?? '').trim();
+  return s ? escapeHtml(s[0]) : '·';
+}
+
 function renderFriends() {
   const list = document.getElementById('friends-list');
   const entries = Object.values(nearbyFriends);
   if (!entries.length) { list.innerHTML = '<p class="status">No nearby friends yet.</p>'; return; }
-  list.innerHTML = entries.map(f =>
-    `<div class="friend-item">
-      <span>${friendNames[f.friendId] || f.friendId}</span>
-      <span>${f.distanceMiles.toFixed(2)} mi · ${new Date(f.lastUpdated).toLocaleTimeString()}</span>
-    </div>`
-  ).join('');
+  list.innerHTML = entries.map(f => {
+    const name = friendNames[f.friendId] || f.friendId;
+    return `<div class="friend-item">
+      <span class="avatar">${initialOf(name)}</span>
+      <div class="meta">
+        <span class="name">${escapeHtml(name)}</span>
+        <span class="sub">Updated ${new Date(f.lastUpdated).toLocaleTimeString()}</span>
+      </div>
+      <span class="trailing"><span class="distance">${f.distanceMiles.toFixed(2)} mi</span></span>
+    </div>`;
+  }).join('');
 }
 
 // ── Load friend names from REST API ──────────────────────────────────────────
@@ -231,10 +867,10 @@ function connectWs() {
   ws = new WebSocket(url);
 
   ws.onopen = () => {
-    setStatus('ws-status', 'WebSocket: connected', true);
+    setStatus('ws-status', 'Connected', true);
     document.getElementById('btn-send-location').disabled = false;
     document.getElementById('btn-refresh-friends').disabled = false;
-    document.getElementById('btn-connect-ws').textContent = 'Disconnect WebSocket';
+    document.getElementById('btn-connect-ws').textContent = 'Disconnect';
     log('Connected');
     // Send location immediately on connect
     sendCurrentLocation();
@@ -243,7 +879,7 @@ function connectWs() {
     setStatus('ws-status', 'WebSocket: disconnected');
     document.getElementById('btn-send-location').disabled = true;
     document.getElementById('btn-refresh-friends').disabled = true;
-    document.getElementById('btn-connect-ws').textContent = 'Connect WebSocket';
+    document.getElementById('btn-connect-ws').textContent = 'Connect';
     log('Disconnected');
     ws = null;
   };
@@ -290,9 +926,9 @@ async function init() {
   if (tokens) {
     const claims = parseJwt(tokens.id_token);
     setStatus('auth-status', `Signed in as ${claims?.email || claims?.sub}`, true);
-    show('btn-logout');
-    hide('btn-login');
-    show('section-profile', 'section-location', 'section-friends', 'section-strangers', 'section-requests', 'section-log');
+    hide('section-auth');
+    show('tabs-container', 'tab-nav');
+    document.body.classList.add('authenticated');
 
     // Load profile and friend names
     try {
@@ -304,6 +940,20 @@ async function init() {
     await loadFriendNames();
   }
 }
+
+// ── Tab navigation ────────────────────────────────────────────────────────────
+function activateTab(name) {
+  document.querySelectorAll('.tab-view').forEach(v => {
+    v.classList.toggle('hidden', v.id !== 'tab-' + name);
+  });
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === name);
+  });
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+});
 
 // ── Event listeners ───────────────────────────────────────────────────────────
 document.getElementById('btn-login').onclick = () => {
@@ -331,7 +981,7 @@ document.getElementById('btn-save-profile').onclick = async () => {
   };
   try {
     await api('PUT', `/users/${claims.sub}/profile`, body);
-    setStatus('profile-status', 'Saved!', true);
+    setStatus('profile-status', 'Saved', true);
   } catch (e) {
     setStatus('profile-status', e.message, false);
   }
@@ -360,7 +1010,11 @@ document.getElementById('btn-refresh-strangers').onclick = async () => {
     if (!list.length) { el.innerHTML = '<p class="status">No nearby strangers.</p>'; return; }
     el.innerHTML = list.map(s =>
       `<div class="friend-item">
-        <span>${s.displayName} (${s.distanceMiles.toFixed(2)} mi)</span>
+        <span class="avatar">${initialOf(s.displayName)}</span>
+        <div class="meta">
+          <span class="name">${escapeHtml(s.displayName)}</span>
+          <span class="sub">${s.distanceMiles.toFixed(2)} mi away</span>
+        </div>
         <button onclick="sendFriendRequest('${s.userId}')">Add</button>
       </div>`
     ).join('');
@@ -381,8 +1035,12 @@ document.getElementById('btn-refresh-requests').onclick = async () => {
     if (!list.length) { el.innerHTML = '<p class="status">No pending requests.</p>'; return; }
     el.innerHTML = list.map(r =>
       `<div class="friend-item">
-        <span>From: ${r.fromUserId}</span>
-        <div style="display:flex;gap:6px">
+        <span class="avatar">${initialOf(r.fromUserId)}</span>
+        <div class="meta">
+          <span class="name">${escapeHtml(r.fromUserId)}</span>
+          <span class="sub">Wants to connect</span>
+        </div>
+        <div class="actions">
           <button onclick="acceptRequest('${r.requestId}')">Accept</button>
           <button class="danger" onclick="declineRequest('${r.requestId}')">Decline</button>
         </div>
