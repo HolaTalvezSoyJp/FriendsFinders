@@ -814,6 +814,35 @@ function initialOf(str) {
   return s ? escapeHtml(s[0]) : '·';
 }
 
+const EARTH_RADIUS_MI = 3958.8;
+function toRadians(degrees) {
+  return degrees * (Math.PI / 180);
+}
+function haversineMiles(lat1, lng1, lat2, lng2) {
+  const dLat = toRadians(lat2 - lat1);
+  const dLng = toRadians(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) ** 2;
+  return EARTH_RADIUS_MI * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+function readUserLngLatInput() {
+  const lat = parseFloat(document.getElementById('input-lat').value);
+  const lng = parseFloat(document.getElementById('input-lng').value);
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+  return { lat, lng };
+}
+
+function displayFriendDistanceMiles(f) {
+  const u = readUserLngLatInput();
+  if (u !== null && f.latitude != null && f.longitude != null) {
+    return Math.round(haversineMiles(u.lat, u.lng, f.latitude, f.longitude) * 100) / 100;
+  }
+  const d = f.distanceMiles;
+  return typeof d === 'number' ? d : 0;
+}
+
 function renderFriends() {
   const list = document.getElementById('friends-list');
   const entries = Object.values(nearbyFriends);
@@ -826,7 +855,7 @@ function renderFriends() {
         <span class="name">${escapeHtml(name)}</span>
         <span class="sub">Updated ${new Date(f.lastUpdated).toLocaleTimeString()}</span>
       </div>
-      <span class="trailing"><span class="distance">${f.distanceMiles.toFixed(2)} mi</span></span>
+      <span class="trailing"><span class="distance">${displayFriendDistanceMiles(f).toFixed(2)} mi</span></span>
     </div>`;
   }).join('');
 }
@@ -888,8 +917,23 @@ function connectWs() {
     const msg = JSON.parse(e.data);
     log('← ' + JSON.stringify(msg));
     if (msg.type === 'init.response') {
-      nearbyFriends = {};
-      (msg.friends || []).forEach(f => { nearbyFriends[f.friendId] = f; });
+      const merged = {};
+      (msg.friends || []).forEach(f => {
+        const prev = nearbyFriends[f.friendId];
+        let dist = f.distanceMiles ?? 0;
+        if (
+          prev &&
+          dist === 0 &&
+          prev.distanceMiles > 0 &&
+          prev.latitude === f.latitude &&
+          prev.longitude === f.longitude &&
+          prev.lastUpdated === f.lastUpdated
+        ) {
+          dist = prev.distanceMiles;
+        }
+        merged[f.friendId] = { ...f, distanceMiles: dist };
+      });
+      nearbyFriends = merged;
       renderFriends();
     } else if (msg.type === 'location.push') {
       nearbyFriends[msg.friendId] = msg;
@@ -1035,9 +1079,9 @@ document.getElementById('btn-refresh-requests').onclick = async () => {
     if (!list.length) { el.innerHTML = '<p class="status">No pending requests.</p>'; return; }
     el.innerHTML = list.map(r =>
       `<div class="friend-item">
-        <span class="avatar">${initialOf(r.fromUserId)}</span>
+        <span class="avatar">${initialOf(r.fromDisplayName || r.fromUserId)}</span>
         <div class="meta">
-          <span class="name">${escapeHtml(r.fromUserId)}</span>
+          <span class="name">${escapeHtml(r.fromDisplayName || r.fromUserId)}</span>
           <span class="sub">Wants to connect</span>
         </div>
         <div class="actions">

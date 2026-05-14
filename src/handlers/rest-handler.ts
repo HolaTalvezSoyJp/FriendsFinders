@@ -203,7 +203,17 @@ async function handleGetFriendRequests(event: APIGatewayProxyEventV2): Promise<A
   const requests = await getFriendRequestsByToUser(userId);
   const pending = requests.filter(r => r.status === 'pending');
 
-  return response(200, pending);
+  const enriched = await Promise.all(
+    pending.map(async r => {
+      const fromProfile = await getUser(r.fromUserId);
+      return {
+        ...r,
+        fromDisplayName: fromProfile?.displayName || 'User',
+      };
+    }),
+  );
+
+  return response(200, enriched);
 }
 
 // --- PUT /friend-requests/{requestId}/accept ---
