@@ -287,6 +287,16 @@
       flex-shrink: 0;
     }
 
+    .friend-item .requested-pill {
+      flex-shrink: 0;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--ink-3);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
     /* ── Log ──────────────────────────────────────────────────── */
     #log {
       font-size: 11px;
@@ -604,11 +614,11 @@
         <div class="row">
           <div style="flex:1">
             <label>Latitude</label>
-            <input id="input-lat" type="number" step="any" placeholder="20.6597" />
+            <input id="input-lat" type="text" inputmode="decimal" autocomplete="off" placeholder="20.6597" />
           </div>
           <div style="flex:1">
             <label>Longitude</label>
-            <input id="input-lng" type="number" step="any" placeholder="-103.3496" />
+            <input id="input-lng" type="text" inputmode="decimal" autocomplete="off" placeholder="-103.3496" />
           </div>
         </div>
         <div class="row">
@@ -790,6 +800,56 @@ let ws = null;
 let nearbyFriends = {};
 let friendNames = {}; // friendId -> displayName
 
+const SENT_FRIEND_REQUESTS_KEY = 'ff_sent_friend_requests';
+
+function getSentFriendRequestIds() {
+  try {
+    const raw = sessionStorage.getItem(SENT_FRIEND_REQUESTS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveSentFriendRequestIds(ids) {
+  sessionStorage.setItem(SENT_FRIEND_REQUESTS_KEY, JSON.stringify([...ids]));
+}
+
+function rememberSentFriendRequest(toUserId) {
+  const ids = getSentFriendRequestIds();
+  ids.add(toUserId);
+  saveSentFriendRequestIds(ids);
+}
+
+function pruneSentFriendRequestsAgainstFriends() {
+  const ids = getSentFriendRequestIds();
+  let changed = false;
+  for (const id of [...ids]) {
+    if (friendNames[id] !== undefined) {
+      ids.delete(id);
+      changed = true;
+    }
+  }
+  if (changed) saveSentFriendRequestIds(ids);
+}
+
+function replaceStrangerAddWithRequested(btn) {
+  const span = document.createElement('span');
+  span.className = 'requested-pill';
+  span.setAttribute('aria-label', 'Friend request sent');
+  span.textContent = 'Requested';
+  btn.replaceWith(span);
+}
+
+function strangerActionHtml(userId, requested) {
+  const safeId = escapeHtml(userId);
+  if (requested) {
+    return '<span class="requested-pill" aria-label="Friend request sent">Requested</span>';
+  }
+  return `<button type="button" data-action="send-request" data-user-id="${safeId}">Add</button>`;
+}
+
 // ── UI helpers ────────────────────────────────────────────────────────────────
 function show(...ids) { ids.forEach(id => document.getElementById(id).classList.remove('hidden')); }
 function hide(...ids) { ids.forEach(id => document.getElementById(id).classList.add('hidden')); }
@@ -865,7 +925,9 @@ async function loadFriendNames() {
   try {
     const friends = await api('GET', '/friends');
     friendNames = {};
-    (friends || []).forEach(f => { friendNames[f.friendId] = f.displayName; });
+    (friends || []).forEach((f) => {
+      friendNames[f.friendId] = f.displayName;
+    });
   } catch (e) {
     log('Could not load friend names: ' + e.message);
   }
@@ -1032,10 +1094,22 @@ document.getElementById('btn-save-profile').onclick = async () => {
 };
 
 document.getElementById('btn-use-gps').onclick = () => {
-  navigator.geolocation.getCurrentPosition(pos => {
-    document.getElementById('input-lat').value = pos.coords.latitude.toFixed(6);
-    document.getElementById('input-lng').value = pos.coords.longitude.toFixed(6);
-  }, () => alert('GPS unavailable'));
+  const geoOpts = { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 };
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const { latitude, longitude } = pos.coords;
+      document.getElementById('input-lat').value = String(latitude);
+      document.getElementById('input-lng').value = String(longitude);
+    },
+    (err) => {
+      let msg = 'Could not read your location.';
+      if (err && err.code === 1) msg = 'Location permission denied. Allow location for this site in your browser settings.';
+      else if (err && err.code === 2) msg = 'Location unavailable. Try again or enter coordinates manually.';
+      else if (err && err.code === 3) msg = 'Location request timed out. Try again or move to an area with better GPS signal.';
+      alert(msg);
+    },
+    geoOpts
+  );
 };
 
 document.getElementById('btn-connect-ws').onclick = connectWs;
@@ -1049,28 +1123,47 @@ document.getElementById('btn-refresh-friends').onclick = () => {
 
 document.getElementById('btn-refresh-strangers').onclick = async () => {
   try {
+    pruneSentFriendRequestsAgainstFriends();
+    const sentIds = getSentFriendRequestIds();
     const list = await api('GET', '/nearby-strangers');
     const el = document.getElementById('strangers-list');
     if (!list.length) { el.innerHTML = '<p class="status">No nearby strangers.</p>'; return; }
-    el.innerHTML = list.map(s =>
-      `<div class="friend-item">
+    el.innerHTML = list.map((s) => {
+      const requested = sentIds.has(s.userId);
+      return `<div class="friend-item">
         <span class="avatar">${initialOf(s.displayName)}</span>
         <div class="meta">
           <span class="name">${escapeHtml(s.displayName)}</span>
           <span class="sub">${s.distanceMiles.toFixed(2)} mi away</span>
         </div>
-        <button onclick="sendFriendRequest('${s.userId}')">Add</button>
-      </div>`
-    ).join('');
+        ${strangerActionHtml(s.userId, requested)}
+      </div>`;
+    }).join('');
   } catch (e) { alert(e.message); }
 };
 
-window.sendFriendRequest = async (toUserId) => {
+document.getElementById('strangers-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action="send-request"]');
+  if (!btn) return;
+  const toUserId = btn.getAttribute('data-user-id');
+  if (!toUserId) return;
   try {
     await api('POST', `/friend-requests/${toUserId}`);
-    alert('Friend request sent!');
-  } catch (e) { alert(e.message); }
-};
+    rememberSentFriendRequest(toUserId);
+    replaceStrangerAddWithRequested(btn);
+  } catch (err) {
+    const msg = err && err.message ? String(err.message) : '';
+    const dupPending =
+      /^409:/.test(msg) &&
+      (/already pending/i.test(msg) || /Friend request already pending/i.test(msg));
+    if (dupPending) {
+      rememberSentFriendRequest(toUserId);
+      replaceStrangerAddWithRequested(btn);
+      return;
+    }
+    alert(msg || String(err));
+  }
+});
 
 document.getElementById('btn-refresh-requests').onclick = async () => {
   try {
@@ -1098,6 +1191,7 @@ window.acceptRequest = async (id) => {
     await api('PUT', `/friend-requests/${id}/accept`);
     alert('Accepted!');
     await loadFriendNames();
+    pruneSentFriendRequestsAgainstFriends();
     document.getElementById('btn-refresh-requests').click();
   } catch (e) { alert(e.message); }
 };
