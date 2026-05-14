@@ -9,12 +9,8 @@ import FriendList from './FriendList';
 export default function App() {
   const [token, setToken] = useState<string | null>(getStoredToken);
   const [userPosition, setUserPosition] = useState<[number, number] | null>(null);
+  const { friends: friendLocations, refresh: refreshLocations } = useNearbyFriends(token);
   const { friends, loading, refresh } = useFriends(token);
-  const friendsSignature = friends
-    .map((f) => f.friendId)
-    .sort()
-    .join(',');
-  const friendLocations = useNearbyFriends(token, friendsSignature);
 
   useEffect(() => {
     if (!token) return;
@@ -30,10 +26,7 @@ export default function App() {
       {/* Sidebar */}
       <div style={{ width: 280, borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <strong>Friends (live map)</strong>
-          <div style={{ fontSize: 11, color: '#666', marginTop: 4, lineHeight: 1.3 }}>
-            Places here use your location and WebSocket. <strong>Discover</strong> lists only non-friends; accepted friends no longer appear there.
-          </div>
+          <strong>📍 Friends</strong>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onClick={refresh}
@@ -54,7 +47,12 @@ export default function App() {
 
       {/* Map */}
       <div style={{ flex: 1 }}>
-        <FriendsMap userPosition={userPosition} friends={friendLocations} />
+        <FriendsMap
+          userPosition={userPosition}
+          friends={friendLocations}
+          friendList={friends}
+          onRefresh={refreshLocations}
+        />
       </div>
     </div>
   );

@@ -23,11 +23,6 @@ variable "users_table_name" {
   type        = string
 }
 
-variable "friendships_table_name" {
-  description = "Name of the Friendships DynamoDB table"
-  type        = string
-}
-
 variable "connections_table_name" {
   description = "Name of the Connections DynamoDB table"
   type        = string

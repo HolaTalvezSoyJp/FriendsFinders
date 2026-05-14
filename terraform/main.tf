@@ -85,7 +85,6 @@ module "iam" {
 
   project_name                = var.project_name
   users_table_arn             = module.dynamodb.users_table_arn
-  friendships_table_arn       = module.dynamodb.friendships_table_arn
   connections_table_arn       = module.dynamodb.connections_table_arn
   connections_table_stream_arn = module.dynamodb.connections_table_stream_arn
   friend_requests_table_arn   = module.dynamodb.friend_requests_table_arn
@@ -105,7 +104,6 @@ module "lambda" {
   rest_handler_role_arn       = module.iam.rest_handler_role_arn
   fanout_handler_role_arn     = module.iam.fanout_handler_role_arn
   users_table_name            = module.dynamodb.users_table_name
-  friendships_table_name      = module.dynamodb.friendships_table_name
   connections_table_name      = module.dynamodb.connections_table_name
   friend_requests_table_name  = module.dynamodb.friend_requests_table_name
   connections_table_stream_arn = module.dynamodb.connections_table_stream_arn

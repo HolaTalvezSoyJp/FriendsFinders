@@ -14,6 +14,7 @@
     button { background: #0066ff; color: #fff; border: none; border-radius: 8px; padding: 10px 18px; cursor: pointer; font-size: .9rem; }
     button:disabled { background: #aaa; cursor: default; }
     button.danger { background: #e53e3e; }
+    button.secondary { background: #666; }
     input, select { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px; font-size: .9rem; margin-bottom: 8px; }
     .status { font-size: .8rem; color: #666; margin-top: 6px; }
     .status.ok { color: #2d8a4e; }
@@ -25,6 +26,9 @@
     label { font-size: .85rem; color: #555; display: block; margin-bottom: 2px; }
     .row { display: flex; gap: 8px; }
     .row button { flex: 1; }
+    .friends-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .friends-header h2 { margin: 0; }
+    .btn-small { padding: 5px 10px; font-size: .8rem; }
   </style>
 </head>
 <body>
@@ -74,17 +78,18 @@
     <p class="status" id="ws-status">WebSocket: disconnected</p>
   </div>
 
-  <!-- Nearby friends (WebSocket; includes all online friends with location — not the same as Discover) -->
+  <!-- Nearby friends -->
   <div id="section-friends" class="card hidden">
-    <h2>Friends nearby (live)</h2>
-    <p class="status" style="margin-bottom:8px">From your WebSocket session. After you accept a friend request, they disappear from <strong>Discover</strong> (that list is only non-friends).</p>
+    <div class="friends-header">
+      <h2>Nearby Friends</h2>
+      <button id="btn-refresh-friends" class="secondary btn-small" disabled>🔄 Refresh</button>
+    </div>
     <div id="friends-list"><p class="status">No nearby friends yet.</p></div>
   </div>
 
-  <!-- Nearby strangers (HTTP — excludes existing friends) -->
+  <!-- Nearby strangers -->
   <div id="section-strangers" class="card hidden">
-    <h2>Discover — non-friends nearby</h2>
-    <p class="status" style="margin-bottom:8px">People here are not your friends yet. After you become friends, use <strong>Friends nearby</strong> above.</p>
+    <h2>Nearby Strangers</h2>
     <button id="btn-refresh-strangers">Refresh</button>
     <div id="strangers-list" style="margin-top:8px"></div>
   </div>
@@ -106,10 +111,10 @@
 <script>
 // ── Config injected by Terraform ──────────────────────────────────────────────
 const CONFIG = window.__APP_CONFIG__ || {};
-const COGNITO_DOMAIN   = CONFIG.cognitoDomain;   // e.g. https://nearby-friends-xxx.auth.us-east-1.amazoncognito.com
+const COGNITO_DOMAIN   = CONFIG.cognitoDomain;
 const WEB_CLIENT_ID    = CONFIG.webClientId;
-const HTTP_API         = CONFIG.httpApi;          // e.g. https://xxx.execute-api.us-east-1.amazonaws.com
-const WS_API           = CONFIG.wsApi;            // e.g. wss://xxx.execute-api.us-east-1.amazonaws.com/prod
+const HTTP_API         = CONFIG.httpApi;
+const WS_API           = CONFIG.wsApi;
 const REDIRECT_URI     = window.location.origin + '/';
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -162,6 +167,7 @@ async function api(method, path, body) {
 // ── State ─────────────────────────────────────────────────────────────────────
 let ws = null;
 let nearbyFriends = {};
+let friendNames = {}; // friendId -> displayName
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
 function show(...ids) { ids.forEach(id => document.getElementById(id).classList.remove('hidden')); }
@@ -183,17 +189,43 @@ function renderFriends() {
   if (!entries.length) { list.innerHTML = '<p class="status">No nearby friends yet.</p>'; return; }
   list.innerHTML = entries.map(f =>
     `<div class="friend-item">
-      <span>${f.friendId}</span>
+      <span>${friendNames[f.friendId] || f.friendId}</span>
       <span>${f.distanceMiles.toFixed(2)} mi · ${new Date(f.lastUpdated).toLocaleTimeString()}</span>
     </div>`
   ).join('');
 }
 
+// ── Load friend names from REST API ──────────────────────────────────────────
+async function loadFriendNames() {
+  try {
+    const friends = await api('GET', '/friends');
+    friendNames = {};
+    (friends || []).forEach(f => { friendNames[f.friendId] = f.displayName; });
+  } catch (e) {
+    log('Could not load friend names: ' + e.message);
+  }
+}
+
 // ── WebSocket ─────────────────────────────────────────────────────────────────
+function sendCurrentLocation() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const lat = parseFloat(document.getElementById('input-lat').value);
+  const lng = parseFloat(document.getElementById('input-lng').value);
+  if (isNaN(lat) || isNaN(lng)) return;
+  const msg = { action: 'location.update', latitude: lat, longitude: lng, timestamp: new Date().toISOString() };
+  ws.send(JSON.stringify(msg));
+  log('→ ' + JSON.stringify(msg));
+}
+
 function connectWs() {
   const tokens = getTokens();
   if (!tokens) return;
-  if (ws) ws.close();
+
+  // If already connected, disconnect and return
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.close();
+    return;
+  }
 
   const url = `${WS_API}?token=${encodeURIComponent(tokens.id_token)}`;
   ws = new WebSocket(url);
@@ -201,33 +233,21 @@ function connectWs() {
   ws.onopen = () => {
     setStatus('ws-status', 'WebSocket: connected', true);
     document.getElementById('btn-send-location').disabled = false;
+    document.getElementById('btn-refresh-friends').disabled = false;
+    document.getElementById('btn-connect-ws').textContent = 'Disconnect WebSocket';
     log('Connected');
-    const lat = parseFloat(document.getElementById('input-lat').value);
-    const lng = parseFloat(document.getElementById('input-lng').value);
-    if (!isNaN(lat) && !isNaN(lng) && ws && ws.readyState === WebSocket.OPEN) {
-      const msg = { action: 'location.update', latitude: lat, longitude: lng, timestamp: new Date().toISOString() };
-      ws.send(JSON.stringify(msg));
-      log('→ ' + JSON.stringify(msg) + ' (auto on connect)');
-    } else if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (!ws || ws.readyState !== WebSocket.OPEN) return;
-          const msg = { action: 'location.update', latitude: pos.coords.latitude, longitude: pos.coords.longitude, timestamp: new Date().toISOString() };
-          ws.send(JSON.stringify(msg));
-          log('→ ' + JSON.stringify(msg) + ' (GPS on connect)');
-        },
-        () => { log('GPS unavailable on connect; set coordinates manually and Send location'); },
-        { enableHighAccuracy: true, timeout: 10_000 }
-      );
-    }
+    // Send location immediately on connect
+    sendCurrentLocation();
   };
   ws.onclose = () => {
     setStatus('ws-status', 'WebSocket: disconnected');
     document.getElementById('btn-send-location').disabled = true;
+    document.getElementById('btn-refresh-friends').disabled = true;
+    document.getElementById('btn-connect-ws').textContent = 'Connect WebSocket';
     log('Disconnected');
     ws = null;
   };
-  ws.onerror = (e) => { log('WS error: ' + e.message); };
+  ws.onerror = (e) => { log('WS error: ' + (e.message || 'unknown')); };
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     log('← ' + JSON.stringify(msg));
@@ -254,7 +274,6 @@ function sendLocation() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
-  // Handle OAuth callback
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code');
   if (code) {
@@ -275,12 +294,14 @@ async function init() {
     hide('btn-login');
     show('section-profile', 'section-location', 'section-friends', 'section-strangers', 'section-requests', 'section-log');
 
-    // Load existing profile
+    // Load profile and friend names
     try {
       const profile = await api('GET', `/users/${claims.sub}/profile`);
       document.getElementById('input-name').value = profile.displayName || '';
       document.getElementById('input-discoverable').checked = !!profile.discoverable;
-    } catch { /* new user, no profile yet */ }
+    } catch { /* new user */ }
+
+    await loadFriendNames();
   }
 }
 
@@ -326,6 +347,12 @@ document.getElementById('btn-use-gps').onclick = () => {
 document.getElementById('btn-connect-ws').onclick = connectWs;
 document.getElementById('btn-send-location').onclick = sendLocation;
 
+document.getElementById('btn-refresh-friends').onclick = () => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ action: 'friends.refresh' }));
+  log('→ friends.refresh');
+};
+
 document.getElementById('btn-refresh-strangers').onclick = async () => {
   try {
     const list = await api('GET', '/nearby-strangers');
@@ -368,17 +395,15 @@ window.acceptRequest = async (id) => {
   try {
     await api('PUT', `/friend-requests/${id}/accept`);
     alert('Accepted!');
+    await loadFriendNames();
     document.getElementById('btn-refresh-requests').click();
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ action: 'friends.refresh' }));
-      log('→ friends.refresh');
-    }
-  }
-  catch (e) { alert(e.message); }
+  } catch (e) { alert(e.message); }
 };
 window.declineRequest = async (id) => {
-  try { await api('PUT', `/friend-requests/${id}/decline`); document.getElementById('btn-refresh-requests').click(); }
-  catch (e) { alert(e.message); }
+  try {
+    await api('PUT', `/friend-requests/${id}/decline`);
+    document.getElementById('btn-refresh-requests').click();
+  } catch (e) { alert(e.message); }
 };
 
 init();

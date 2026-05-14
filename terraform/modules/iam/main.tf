@@ -34,8 +34,6 @@ data "aws_iam_policy_document" "websocket_handler" {
     ]
     resources = [
       var.users_table_arn,
-      var.friendships_table_arn,
-      "${var.friendships_table_arn}/index/*",
       var.connections_table_arn,
       "${var.connections_table_arn}/index/*",
     ]
@@ -103,8 +101,6 @@ data "aws_iam_policy_document" "rest_handler" {
     ]
     resources = [
       var.users_table_arn,
-      var.friendships_table_arn,
-      "${var.friendships_table_arn}/index/*",
       var.connections_table_arn,
       "${var.connections_table_arn}/index/*",
       var.friend_requests_table_arn,
@@ -194,8 +190,6 @@ data "aws_iam_policy_document" "fanout_handler" {
     ]
     resources = [
       var.users_table_arn,
-      var.friendships_table_arn,
-      "${var.friendships_table_arn}/index/*",
       var.connections_table_arn,
       "${var.connections_table_arn}/index/*",
     ]

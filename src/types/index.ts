@@ -11,12 +11,8 @@ export interface UserProfile {
   profilePictureKey?: string;
   discoverable: boolean;
   createdAt: string;
-}
-
-export interface Friendship {
-  userId: string;
-  friendId: string;
-  createdAt: string;
+  friendIds?: string[];
+  friendshipDates?: Record<string, string>; // Map of friendId -> createdAt date
 }
 
 export interface FriendRequest {
@@ -49,17 +45,6 @@ export interface NearbyStrangerEntry {
   userId: string;
   displayName: string;
   profilePictureUrl: string;
-  distanceMiles: number;
-}
-
-/** Snapshot from GET /nearby-friends (friends within radius with active location). */
-export interface NearbyFriendHttpEntry {
-  friendId: string;
-  displayName: string;
-  profilePictureUrl?: string;
-  latitude: number;
-  longitude: number;
-  lastUpdated: string;
   distanceMiles: number;
 }
 

@@ -1,28 +1,39 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import config from './config';
-function sendLocationUpdate(ws, lat, lng) {
-    ws.send(JSON.stringify({
-        action: 'location.update',
-        latitude: lat,
-        longitude: lng,
-        timestamp: new Date().toISOString(),
-    }));
-}
-/** Live friend locations via WebSocket. Pass friendsSignature (e.g. sorted friend ids) to refresh the server friend list after accept without reconnecting. */
-export function useNearbyFriends(token, friendsSignature) {
+export function useNearbyFriends(token) {
     const [friends, setFriends] = useState([]);
     const wsRef = useRef(null);
-    const signatureRef = useRef(friendsSignature);
-    signatureRef.current = friendsSignature;
+    const sendLocation = (ws) => {
+        if (ws.readyState !== WebSocket.OPEN)
+            return;
+        navigator.geolocation.getCurrentPosition(({ coords }) => {
+            ws.send(JSON.stringify({
+                action: 'location.update',
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+                timestamp: new Date().toISOString(),
+            }));
+        });
+    };
+    const refresh = useCallback(() => {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== WebSocket.OPEN)
+            return;
+        ws.send(JSON.stringify({ action: 'friends.refresh' }));
+    }, []);
     useEffect(() => {
         if (!token)
             return;
         const ws = new WebSocket(`${config.websocketEndpoint}?token=${token}`);
         wsRef.current = ws;
+        ws.onopen = () => {
+            // Send location immediately on connect
+            sendLocation(ws);
+        };
         ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
             if (msg.type === 'init.response') {
-                setFriends(msg.friends);
+                setFriends(msg.friends.filter((f) => f.latitude !== undefined && f.longitude !== undefined));
             }
             else if (msg.type === 'location.push') {
                 setFriends((prev) => {
@@ -31,36 +42,12 @@ export function useNearbyFriends(token, friendsSignature) {
                 });
             }
         };
-        ws.onopen = () => {
-            navigator.geolocation.getCurrentPosition(({ coords }) => {
-                sendLocationUpdate(ws, coords.latitude, coords.longitude);
-            }, () => {
-                /* GPS denied — interval may still run later */
-            });
-            const sig = signatureRef.current;
-            if (sig) {
-                ws.send(JSON.stringify({ action: 'friends.refresh' }));
-            }
-        };
-        const interval = setInterval(() => {
-            if (ws.readyState !== WebSocket.OPEN)
-                return;
-            navigator.geolocation.getCurrentPosition(({ coords }) => {
-                sendLocationUpdate(ws, coords.latitude, coords.longitude);
-            });
-        }, 30_000);
+        // Send location updates every 30 seconds
+        const interval = setInterval(() => sendLocation(ws), 30_000);
         return () => {
             clearInterval(interval);
             ws.close();
         };
     }, [token]);
-    useEffect(() => {
-        if (!friendsSignature)
-            return;
-        const ws = wsRef.current;
-        if (ws?.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ action: 'friends.refresh' }));
-        }
-    }, [friendsSignature]);
-    return friends;
+    return { friends, refresh };
 }

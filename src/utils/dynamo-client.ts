@@ -17,7 +17,6 @@ const docClient = DynamoDBDocumentClient.from(ddbClient, {
 });
 
 const CONNECTIONS_TABLE = process.env.CONNECTIONS_TABLE_NAME || 'Connections';
-const FRIENDSHIPS_TABLE = process.env.FRIENDSHIPS_TABLE_NAME || 'Friendships';
 const USERS_TABLE = process.env.USERS_TABLE_NAME || 'Users';
 const FRIEND_REQUESTS_TABLE = process.env.FRIEND_REQUESTS_TABLE_NAME || 'FriendRequests';
 
@@ -76,43 +75,66 @@ export async function updateConnectionLocation(
   }));
 }
 
-// --- Friendships Table ---
+// --- Friendships (now stored in Users table) ---
 
 export async function getFriends(userId: string): Promise<{ userId: string; friendId: string; createdAt: string }[]> {
-  const result = await docClient.send(new QueryCommand({
-    TableName: FRIENDSHIPS_TABLE,
-    KeyConditionExpression: 'userId = :uid',
-    ExpressionAttributeValues: { ':uid': userId },
+  const user = await getUser(userId);
+  if (!user || !user.friendIds || user.friendIds.length === 0) {
+    return [];
+  }
+  
+  // Convert friendIds array to the expected format
+  return user.friendIds.map(friendId => ({
+    userId,
+    friendId,
+    createdAt: user.friendshipDates?.[friendId] || user.createdAt,
   }));
-  return (result.Items || []) as { userId: string; friendId: string; createdAt: string }[];
 }
 
 export async function putFriendship(userId: string, friendId: string): Promise<void> {
-  await docClient.send(new PutCommand({
-    TableName: FRIENDSHIPS_TABLE,
-    Item: {
-      userId,
-      friendId,
-      createdAt: new Date().toISOString(),
+  const user = await getUser(userId);
+  const friendIds = user?.friendIds || [];
+  const friendshipDates = user?.friendshipDates || {};
+  
+  // Add friendId if not already present
+  if (!friendIds.includes(friendId)) {
+    friendIds.push(friendId);
+    friendshipDates[friendId] = new Date().toISOString();
+    
+    await docClient.send(new UpdateCommand({
+      TableName: USERS_TABLE,
+      Key: { userId },
+      UpdateExpression: 'SET friendIds = :fids, friendshipDates = :fdates',
+      ExpressionAttributeValues: {
+        ':fids': friendIds,
+        ':fdates': friendshipDates,
+      },
+    }));
+  }
+}
+
+export async function deleteFriendship(userId: string, friendId: string): Promise<void> {
+  const user = await getUser(userId);
+  if (!user || !user.friendIds) return;
+  
+  const friendIds = user.friendIds.filter(id => id !== friendId);
+  const friendshipDates = user.friendshipDates || {};
+  delete friendshipDates[friendId];
+  
+  await docClient.send(new UpdateCommand({
+    TableName: USERS_TABLE,
+    Key: { userId },
+    UpdateExpression: 'SET friendIds = :fids, friendshipDates = :fdates',
+    ExpressionAttributeValues: {
+      ':fids': friendIds,
+      ':fdates': friendshipDates,
     },
   }));
 }
 
-export async function deleteFriendship(userId: string, friendId: string): Promise<void> {
-  await docClient.send(new DeleteCommand({
-    TableName: FRIENDSHIPS_TABLE,
-    Key: { userId, friendId },
-  }));
-}
-
 export async function getFriendCount(userId: string): Promise<number> {
-  const result = await docClient.send(new QueryCommand({
-    TableName: FRIENDSHIPS_TABLE,
-    KeyConditionExpression: 'userId = :uid',
-    ExpressionAttributeValues: { ':uid': userId },
-    Select: 'COUNT',
-  }));
-  return result.Count || 0;
+  const user = await getUser(userId);
+  return user?.friendIds?.length || 0;
 }
 
 // --- Users Table ---
@@ -126,9 +148,15 @@ export async function getUser(userId: string): Promise<UserProfile | undefined> 
 }
 
 export async function putUser(profile: UserProfile): Promise<void> {
+  const item = {
+    ...profile,
+    friendIds: profile.friendIds || [],
+    friendshipDates: profile.friendshipDates || {},
+  };
+  
   await docClient.send(new PutCommand({
     TableName: USERS_TABLE,
-    Item: profile,
+    Item: item,
   }));
 }
 
