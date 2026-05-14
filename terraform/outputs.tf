@@ -13,11 +13,6 @@ output "users_table_name" {
   value       = module.dynamodb.users_table_name
 }
 
-output "friendships_table_name" {
-  description = "Name of the Friendships DynamoDB table"
-  value       = module.dynamodb.friendships_table_name
-}
-
 output "connections_table_name" {
   description = "Name of the Connections DynamoDB table"
   value       = module.dynamodb.connections_table_name

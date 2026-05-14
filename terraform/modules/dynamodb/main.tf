@@ -11,31 +11,6 @@ resource "aws_dynamodb_table" "users" {
   tags = var.tags
 }
 
-resource "aws_dynamodb_table" "friendships" {
-  name         = "${var.project_name}-friendships"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "userId"
-  range_key    = "friendId"
-
-  attribute {
-    name = "userId"
-    type = "S"
-  }
-
-  attribute {
-    name = "friendId"
-    type = "S"
-  }
-
-  global_secondary_index {
-    name            = "friendId-index"
-    hash_key        = "friendId"
-    projection_type = "ALL"
-  }
-
-  tags = var.tags
-}
-
 resource "aws_dynamodb_table" "connections" {
   name             = "${var.project_name}-connections"
   billing_mode     = "PAY_PER_REQUEST"

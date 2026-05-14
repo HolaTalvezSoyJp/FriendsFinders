@@ -11,12 +11,8 @@ export interface UserProfile {
   profilePictureKey?: string;
   discoverable: boolean;
   createdAt: string;
-}
-
-export interface Friendship {
-  userId: string;
-  friendId: string;
-  createdAt: string;
+  friendIds?: string[];
+  friendshipDates?: Record<string, string>; // Map of friendId -> createdAt date
 }
 
 export interface FriendRequest {

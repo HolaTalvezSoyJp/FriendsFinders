@@ -27,6 +27,8 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       return handleDisconnect(connectionId);
     case 'location.update':
       return handleLocationUpdate(event, connectionId);
+    case 'friends.refresh':
+      return handleFriendsRefresh(connectionId);
     default:
       return { statusCode: 400, body: JSON.stringify({ error: 'Unknown route' }) };
   }
@@ -96,6 +98,38 @@ async function handleDisconnect(connectionId: string): Promise<APIGatewayProxyRe
     console.error('Error deleting connection:', err);
   }
   return { statusCode: 200, body: 'Disconnected' };
+}
+
+async function handleFriendsRefresh(connectionId: string): Promise<APIGatewayProxyResult> {
+  const connection = await getConnection(connectionId);
+  if (!connection) return { statusCode: 200, body: 'Connection not found' };
+
+  const friends = await getFriends(connection.userId);
+  const nearbyFriends: NearbyFriendEntry[] = [];
+  const currentTime = Math.floor(Date.now() / 1000);
+
+  for (const friend of friends) {
+    const friendConnections = await getConnectionsByUserId(friend.friendId);
+    for (const conn of friendConnections) {
+      if (conn.latitude !== undefined && conn.longitude !== undefined && conn.expiresAt > currentTime && conn.timestamp) {
+        nearbyFriends.push({
+          friendId: friend.friendId,
+          latitude: conn.latitude,
+          longitude: conn.longitude,
+          lastUpdated: conn.timestamp,
+          distanceMiles: 0,
+        });
+        break;
+      }
+    }
+  }
+
+  try {
+    await postToConnection(connectionId, buildInitResponse(nearbyFriends));
+  } catch (err) {
+    console.error('Failed to send friends.refresh response:', err);
+  }
+  return { statusCode: 200, body: 'OK' };
 }
 
 async function handleLocationUpdate(event: APIGatewayProxyEvent, connectionId: string): Promise<APIGatewayProxyResult> {

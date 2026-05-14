@@ -8,11 +8,6 @@ variable "users_table_arn" {
   type        = string
 }
 
-variable "friendships_table_arn" {
-  description = "ARN of the Friendships DynamoDB table"
-  type        = string
-}
-
 variable "connections_table_arn" {
   description = "ARN of the Connections DynamoDB table"
   type        = string

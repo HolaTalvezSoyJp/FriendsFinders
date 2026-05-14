@@ -27,6 +27,12 @@ resource "aws_apigatewayv2_route" "location_update" {
   target    = "integrations/${aws_apigatewayv2_integration.websocket.id}"
 }
 
+resource "aws_apigatewayv2_route" "friends_refresh" {
+  api_id    = var.websocket_api_id
+  route_key = "friends.refresh"
+  target    = "integrations/${aws_apigatewayv2_integration.websocket.id}"
+}
+
 resource "aws_lambda_permission" "websocket" {
   statement_id  = "AllowAPIGatewayWebSocket"
   action        = "lambda:InvokeFunction"
@@ -88,6 +94,14 @@ locals {
 }
 
 # Friend management routes
+resource "aws_apigatewayv2_route" "get_friends" {
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "GET /friends"
+  target             = "integrations/${aws_apigatewayv2_integration.http.id}"
+  authorization_type = local.jwt_auth.authorization_type
+  authorizer_id      = local.jwt_auth.authorizer_id
+}
+
 resource "aws_apigatewayv2_route" "post_friends" {
   api_id             = aws_apigatewayv2_api.http.id
   route_key          = "POST /friends/{friendId}"
@@ -124,6 +138,15 @@ resource "aws_apigatewayv2_route" "put_profile" {
 resource "aws_apigatewayv2_route" "get_profile_picture_upload_url" {
   api_id             = aws_apigatewayv2_api.http.id
   route_key          = "GET /users/{userId}/profile-picture-upload-url"
+  target             = "integrations/${aws_apigatewayv2_integration.http.id}"
+  authorization_type = local.jwt_auth.authorization_type
+  authorizer_id      = local.jwt_auth.authorizer_id
+}
+
+# Nearby friends route (one-shot HTTP snapshot; live updates still use WebSocket)
+resource "aws_apigatewayv2_route" "get_nearby_friends" {
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "GET /nearby-friends"
   target             = "integrations/${aws_apigatewayv2_integration.http.id}"
   authorization_type = local.jwt_auth.authorization_type
   authorizer_id      = local.jwt_auth.authorizer_id

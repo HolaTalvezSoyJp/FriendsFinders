@@ -29,16 +29,15 @@ resource "aws_lambda_function" "websocket_handler" {
 
   environment {
     variables = {
-      USERS_TABLE_NAME           = var.users_table_name
-      FRIENDSHIPS_TABLE_NAME     = var.friendships_table_name
-      CONNECTIONS_TABLE_NAME     = var.connections_table_name
-      S3_BUCKET_NAME             = var.s3_bucket_name
-      WEBSOCKET_API_ENDPOINT     = var.websocket_api_endpoint
-      SSM_SEARCH_RADIUS          = "/nearby-friends/search-radius-miles"
-      SSM_INACTIVITY_TTL         = "/nearby-friends/inactivity-ttl-seconds"
+      USERS_TABLE_NAME             = var.users_table_name
+      CONNECTIONS_TABLE_NAME       = var.connections_table_name
+      S3_BUCKET_NAME               = var.s3_bucket_name
+      WEBSOCKET_API_ENDPOINT       = replace(var.websocket_api_endpoint, "wss://", "https://")
+      SSM_SEARCH_RADIUS            = "/nearby-friends/search-radius-miles"
+      SSM_INACTIVITY_TTL           = "/nearby-friends/inactivity-ttl-seconds"
       SSM_LOCATION_UPDATE_INTERVAL = "/nearby-friends/location-update-interval-seconds"
-      SSM_MAX_FRIENDS            = "/nearby-friends/max-friends"
-      COGNITO_USER_POOL_ID       = var.cognito_user_pool_id
+      SSM_MAX_FRIENDS              = "/nearby-friends/max-friends"
+      COGNITO_USER_POOL_ID         = var.cognito_user_pool_id
     }
   }
 
@@ -59,11 +58,10 @@ resource "aws_lambda_function" "rest_handler" {
   environment {
     variables = {
       USERS_TABLE_NAME           = var.users_table_name
-      FRIENDSHIPS_TABLE_NAME     = var.friendships_table_name
       CONNECTIONS_TABLE_NAME     = var.connections_table_name
       FRIEND_REQUESTS_TABLE_NAME = var.friend_requests_table_name
       S3_BUCKET_NAME             = var.s3_bucket_name
-      WEBSOCKET_API_ENDPOINT     = var.websocket_api_endpoint
+      WEBSOCKET_API_ENDPOINT     = replace(var.websocket_api_endpoint, "wss://", "https://")
       SSM_SEARCH_RADIUS          = "/nearby-friends/search-radius-miles"
       SSM_INACTIVITY_TTL         = "/nearby-friends/inactivity-ttl-seconds"
       SSM_MAX_FRIENDS            = "/nearby-friends/max-friends"
@@ -88,10 +86,9 @@ resource "aws_lambda_function" "fanout_handler" {
   environment {
     variables = {
       USERS_TABLE_NAME       = var.users_table_name
-      FRIENDSHIPS_TABLE_NAME = var.friendships_table_name
       CONNECTIONS_TABLE_NAME = var.connections_table_name
       S3_BUCKET_NAME         = var.s3_bucket_name
-      WEBSOCKET_API_ENDPOINT = var.websocket_api_endpoint
+      WEBSOCKET_API_ENDPOINT = replace(var.websocket_api_endpoint, "wss://", "https://")
       SSM_SEARCH_RADIUS      = "/nearby-friends/search-radius-miles"
       SSM_INACTIVITY_TTL     = "/nearby-friends/inactivity-ttl-seconds"
     }
@@ -109,7 +106,7 @@ resource "aws_lambda_event_source_mapping" "connections_stream" {
 
   filter_criteria {
     filter {
-      pattern = jsonencode({ eventName = ["INSERT", "REMOVE"] })
+      pattern = jsonencode({ eventName = ["INSERT", "MODIFY", "REMOVE"] })
     }
   }
 }
