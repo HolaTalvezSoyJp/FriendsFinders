@@ -26,6 +26,11 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
   try {
     // Route matching
+    // GET /friends   (must be checked BEFORE /friends/{friendId})
+    if (method === 'GET' && path === '/friends') {
+      return handleGetFriends(event);
+    }
+
     // DELETE /friends/{friendId}
     if (method === 'DELETE' && path.match(/^\/friends\/[^/]+$/)) {
       return handleRemoveFriend(event);
@@ -95,6 +100,40 @@ function response(statusCode: number, body: unknown): APIGatewayProxyResultV2 {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   };
+}
+
+// --- GET /friends ---
+async function handleGetFriends(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const userId = getAuthUserId(event);
+  if (!userId) return response(401, { error: 'Unauthorized' });
+
+  const friendships = await getFriends(userId);
+
+  const result: {
+    friendId: string;
+    displayName: string;
+    profilePictureUrl?: string;
+    friendsSince: string;
+  }[] = [];
+
+  for (const f of friendships) {
+    const user = await getUser(f.friendId);
+    if (!user) continue;
+
+    let profilePictureUrl: string | undefined;
+    if (user.profilePictureKey) {
+      profilePictureUrl = await generateDownloadUrl(user.profilePictureKey);
+    }
+
+    result.push({
+      friendId: user.userId,
+      displayName: user.displayName,
+      profilePictureUrl,
+      friendsSince: f.createdAt,
+    });
+  }
+
+  return response(200, result);
 }
 
 // --- DELETE /friends/{friendId} ---

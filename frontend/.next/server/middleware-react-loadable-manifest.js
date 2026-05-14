@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST='{"components/friends/LiveMap.tsx -> maplibre-gl":{"id":4606,"files":["static/chunks/05f6971a.d29fb8c443c49c52.js"]}}';
