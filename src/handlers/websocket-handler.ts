@@ -13,8 +13,64 @@ import { postToConnection } from '../utils/apigw-client';
 import { getConfig } from '../utils/config';
 import { haversine } from '../utils/distance';
 import { validateLocationUpdate } from '../utils/validation';
-import { buildInitResponse, buildLocationPush } from '../utils/message-utils';
+import { buildInitResponse } from '../utils/message-utils';
 import { ConnectionRecord, NearbyFriendEntry } from '../types';
+
+function pickLatestLocatedConnection(
+  connections: ConnectionRecord[],
+  currentTimeSeconds: number
+): ConnectionRecord | undefined {
+  let best: ConnectionRecord | undefined;
+  for (const conn of connections) {
+    if (conn.expiresAt <= currentTimeSeconds) continue;
+    if (conn.latitude === undefined || conn.longitude === undefined || !conn.timestamp) continue;
+    if (!best || conn.timestamp > best.timestamp!) best = conn;
+  }
+  return best;
+}
+
+async function buildNearbyFriendSnapshots(
+  userId: string,
+  friendships: Awaited<ReturnType<typeof getFriends>>,
+  config: Awaited<ReturnType<typeof getConfig>>,
+  currentTimeSeconds: number
+): Promise<NearbyFriendEntry[]> {
+  const subscriberConnections = await getConnectionsByUserId(userId);
+  const subscriberBest = pickLatestLocatedConnection(subscriberConnections, currentTimeSeconds);
+  const subLat = subscriberBest?.latitude;
+  const subLng = subscriberBest?.longitude;
+
+  const nearbyFriends: NearbyFriendEntry[] = [];
+
+  for (const friend of friendships) {
+    const friendConnections = await getConnectionsByUserId(friend.friendId);
+    for (const conn of friendConnections) {
+      if (
+        conn.latitude !== undefined &&
+        conn.longitude !== undefined &&
+        conn.expiresAt > currentTimeSeconds &&
+        conn.timestamp
+      ) {
+        let distanceMiles = 0;
+        if (subLat !== undefined && subLng !== undefined) {
+          distanceMiles = haversine(subLat, subLng, conn.latitude, conn.longitude);
+          if (distanceMiles > config.searchRadiusMiles) break;
+          distanceMiles = Math.round(distanceMiles * 100) / 100;
+        }
+        nearbyFriends.push({
+          friendId: friend.friendId,
+          latitude: conn.latitude,
+          longitude: conn.longitude,
+          lastUpdated: conn.timestamp,
+          distanceMiles,
+        });
+        break;
+      }
+    }
+  }
+
+  return nearbyFriends;
+}
 
 export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const routeKey = (event.requestContext as unknown as { routeKey: string }).routeKey;
@@ -55,30 +111,9 @@ async function handleConnect(event: APIGatewayProxyEvent, connectionId: string):
     expiresAt,
   });
 
-  // Fetch user's friends
   const friends = await getFriends(userId);
-
-  // For each friend, find their active connections with location
-  const nearbyFriends: NearbyFriendEntry[] = [];
   const currentTime = Math.floor(Date.now() / 1000);
-
-  for (const friend of friends) {
-    const friendConnections = await getConnectionsByUserId(friend.friendId);
-    for (const conn of friendConnections) {
-      if (conn.latitude !== undefined && conn.longitude !== undefined && conn.expiresAt > currentTime && conn.timestamp) {
-        // We don't have the user's location yet at connect time, so we include all active friends
-        // The client will filter by distance or we skip distance filtering on init
-        nearbyFriends.push({
-          friendId: friend.friendId,
-          latitude: conn.latitude,
-          longitude: conn.longitude,
-          lastUpdated: conn.timestamp,
-          distanceMiles: 0, // Distance unknown at connect (user hasn't sent location yet)
-        });
-        break; // One entry per friend
-      }
-    }
-  }
+  const nearbyFriends = await buildNearbyFriendSnapshots(userId, friends, config, currentTime);
 
   // Send init.response to the connecting client
   const initResponse = buildInitResponse(nearbyFriends);
@@ -104,25 +139,10 @@ async function handleFriendsRefresh(connectionId: string): Promise<APIGatewayPro
   const connection = await getConnection(connectionId);
   if (!connection) return { statusCode: 200, body: 'Connection not found' };
 
+  const config = await getConfig();
   const friends = await getFriends(connection.userId);
-  const nearbyFriends: NearbyFriendEntry[] = [];
   const currentTime = Math.floor(Date.now() / 1000);
-
-  for (const friend of friends) {
-    const friendConnections = await getConnectionsByUserId(friend.friendId);
-    for (const conn of friendConnections) {
-      if (conn.latitude !== undefined && conn.longitude !== undefined && conn.expiresAt > currentTime && conn.timestamp) {
-        nearbyFriends.push({
-          friendId: friend.friendId,
-          latitude: conn.latitude,
-          longitude: conn.longitude,
-          lastUpdated: conn.timestamp,
-          distanceMiles: 0,
-        });
-        break;
-      }
-    }
-  }
+  const nearbyFriends = await buildNearbyFriendSnapshots(connection.userId, friends, config, currentTime);
 
   try {
     await postToConnection(connectionId, buildInitResponse(nearbyFriends));

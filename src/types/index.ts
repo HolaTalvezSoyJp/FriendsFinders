@@ -41,6 +41,11 @@ export interface NearbyFriendEntry {
   distanceMiles: number;
 }
 
+export interface NearbyFriendHttpEntry extends NearbyFriendEntry {
+  displayName: string;
+  profilePictureUrl?: string;
+}
+
 export interface NearbyStrangerEntry {
   userId: string;
   displayName: string;

@@ -9,21 +9,52 @@ export interface FriendLocation {
   distanceMiles: number;
 }
 
+const EARTH_RADIUS_MI = 3958.8;
+
+function toRadians(degrees: number): number {
+  return degrees * (Math.PI / 180);
+}
+
+function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const dLat = toRadians(lat2 - lat1);
+  const dLng = toRadians(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) ** 2;
+  return EARTH_RADIUS_MI * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+function mergeInitFriends(incoming: FriendLocation[], prev: FriendLocation[]): FriendLocation[] {
+  return incoming.map((f) => {
+    const p = prev.find((x) => x.friendId === f.friendId);
+    let dist = f.distanceMiles ?? 0;
+    if (
+      p &&
+      dist === 0 &&
+      p.distanceMiles > 0 &&
+      p.latitude === f.latitude &&
+      p.longitude === f.longitude &&
+      p.lastUpdated === f.lastUpdated
+    ) {
+      dist = p.distanceMiles;
+    }
+    return { ...f, distanceMiles: dist };
+  });
+}
+
 export function useNearbyFriends(token: string | null) {
   const [friends, setFriends] = useState<FriendLocation[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const userCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
-  const sendLocation = (ws: WebSocket) => {
-    if (ws.readyState !== WebSocket.OPEN) return;
-    navigator.geolocation.getCurrentPosition(({ coords }) => {
-      ws.send(JSON.stringify({
-        action: 'location.update',
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-        timestamp: new Date().toISOString(),
-      }));
-    });
-  };
+  const applyDisplayDistances = useCallback((list: FriendLocation[]): FriendLocation[] => {
+    const u = userCoordsRef.current;
+    if (!u) return list;
+    return list.map((f) => ({
+      ...f,
+      distanceMiles: Math.round(haversineMiles(u.lat, u.lng, f.latitude, f.longitude) * 100) / 100,
+    }));
+  }, []);
 
   const refresh = useCallback(() => {
     const ws = wsRef.current;
@@ -37,35 +68,46 @@ export function useNearbyFriends(token: string | null) {
     const ws = new WebSocket(`${config.websocketEndpoint}?token=${token}`);
     wsRef.current = ws;
 
+    const sendLocation = () => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      navigator.geolocation.getCurrentPosition(({ coords }) => {
+        userCoordsRef.current = { lat: coords.latitude, lng: coords.longitude };
+        ws.send(JSON.stringify({
+          action: 'location.update',
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          timestamp: new Date().toISOString(),
+        }));
+        setFriends((p) => applyDisplayDistances(p));
+      });
+    };
+
     ws.onopen = () => {
-      // Send location immediately on connect
-      sendLocation(ws);
+      sendLocation();
     };
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       if (msg.type === 'init.response') {
-        setFriends(
-          (msg.friends as FriendLocation[]).filter(
-            (f) => f.latitude !== undefined && f.longitude !== undefined
-          )
+        const raw = ((msg.friends as FriendLocation[]) || []).filter(
+          (f) => f.latitude !== undefined && f.longitude !== undefined,
         );
+        setFriends((prev) => applyDisplayDistances(mergeInitFriends(raw, prev)));
       } else if (msg.type === 'location.push') {
         setFriends((prev) => {
           const filtered = prev.filter((f) => f.friendId !== msg.friendId);
-          return [...filtered, msg];
+          return applyDisplayDistances([...filtered, msg]);
         });
       }
     };
 
-    // Send location updates every 30 seconds
-    const interval = setInterval(() => sendLocation(ws), 30_000);
+    const interval = setInterval(() => sendLocation(), 30_000);
 
     return () => {
       clearInterval(interval);
       ws.close();
     };
-  }, [token]);
+  }, [token, applyDisplayDistances]);
 
   return { friends, refresh };
 }
